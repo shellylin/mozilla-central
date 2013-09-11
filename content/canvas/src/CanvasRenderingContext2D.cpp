@@ -3053,24 +3053,6 @@ CanvasRenderingContext2D::DrawImage(const HTMLImageOrCanvasOrVideoElement& image
   RedrawUser(gfxRect(dx, dy, dw, dh));
 }
 
-#ifdef USE_SKIA_GPU
-static bool
-IsStandardCompositeOp(CompositionOp op)
-{
-    return (op == OP_SOURCE ||
-            op == OP_ATOP ||
-            op == OP_IN ||
-            op == OP_OUT ||
-            op == OP_OVER ||
-            op == OP_DEST_IN ||
-            op == OP_DEST_OUT ||
-            op == OP_DEST_OVER ||
-            op == OP_DEST_ATOP ||
-            op == OP_ADD ||
-            op == OP_XOR);
-}
-#endif
-
 void
 CanvasRenderingContext2D::SetGlobalCompositeOperation(const nsAString& op,
                                                       ErrorResult& error)
@@ -3109,12 +3091,6 @@ CanvasRenderingContext2D::SetGlobalCompositeOperation(const nsAString& op,
   else CANVAS_OP_TO_GFX_OP("luminosity", LUMINOSITY)
   // XXX ERRMSG we need to report an error to developers here! (bug 329026)
   else return;
-
-#ifdef USE_SKIA_GPU
-  if (!IsStandardCompositeOp(comp_op)) {
-    Demote();
-  }
-#endif
 
 #undef CANVAS_OP_TO_GFX_OP
   CurrentState().op = comp_op;
@@ -3159,12 +3135,6 @@ CanvasRenderingContext2D::GetGlobalCompositeOperation(nsAString& op,
   else {
     error.Throw(NS_ERROR_FAILURE);
   }
-
-#ifdef USE_SKIA_GPU
-  if (!IsStandardCompositeOp(comp_op)) {
-    Demote();
-  }
-#endif
 
 #undef CANVAS_OP_TO_GFX_OP
 }
