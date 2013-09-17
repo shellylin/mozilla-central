@@ -811,7 +811,7 @@ CanvasRenderingContext2D::RemoveDemotableContext(CanvasRenderingContext2D* conte
 
 bool
 CheckSizeForSkiaGL(IntSize size) {
-  int minsize = Preferences::GetInt("gfx.canvas.min-size-for-skia-gl", 128);
+  int minsize = Preferences::GetInt("gfx.canvas.min-size-for-skia-gl", 0);
   return size.width >= minsize && size.height >= minsize;
 }
 
