@@ -69,6 +69,7 @@
 #endif
 
 #ifdef USE_SKIA_GPU
+#include "mozilla/Hal.h"
 #include "skia/GrContext.h"
 #include "skia/GrGLInterface.h"
 #include "GLContextSkia.h"
@@ -817,6 +818,37 @@ gfxPlatform::UseAcceleratedSkiaCanvas()
 {
   return Preferences::GetBool("gfx.canvas.azure.accelerated", false) &&
          mPreferredCanvasBackend == BACKEND_SKIA;
+}
+
+void
+gfxPlatform::InitializeSkiaCaches()
+{
+#ifdef USE_SKIA_GPU
+  if (UseAcceleratedSkiaCanvas()) {
+    bool usingDynamicCache = Preferences::GetBool("gfx.canvas.skiagl.dynamic-cache", false);
+
+    int cacheItemLimit = Preferences::GetInt("gfx.canvas.skiagl.cache-items", 256);
+    int cacheSizeLimit = Preferences::GetInt("gfx.canvas.skiagl.cache-size", 64);
+
+    // Prefs are in megabytes, but we want the sizes in bytes
+    cacheSizeLimit *= 1024*1024;
+
+    if (usingDynamicCache) {
+      uint32_t totalMemory = mozilla::hal::GetTotalSystemMemory();
+
+      if (totalMemory) {
+        cacheSizeLimit = totalMemory / 8;
+      }
+
+    }
+
+#ifdef DEBUG
+    printf_stderr("Determined SkiaGL cache limits: Size %i, Items: %i\n", cacheSizeLimit, cacheItemLimit);
+#endif
+
+    Factory::SetGlobalSkiaCacheLimits(cacheItemLimit, cacheSizeLimit);
+  }
+#endif
 }
 
 already_AddRefed<gfxASurface>

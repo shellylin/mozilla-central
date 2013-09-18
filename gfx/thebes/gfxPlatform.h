@@ -274,6 +274,8 @@ public:
 
     virtual bool UseAcceleratedSkiaCanvas();
 
+    virtual void InitializeSkiaCaches();
+
     void GetAzureBackendInfo(mozilla::widget::InfoObject &aObj) {
       aObj.DefineProperty("AzureCanvasBackend", GetBackendName(mPreferredCanvasBackend));
       aObj.DefineProperty("AzureSkiaAccelerated", UseAcceleratedSkiaCanvas());
