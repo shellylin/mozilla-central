@@ -25,6 +25,7 @@
 #include "SkStroke.h"
 #include "SkUtils.h"
 #include "SkErrorInternals.h"
+#include "SkRasterizer.h"
 
 #define CACHE_COMPATIBLE_DEVICE_TEXTURES 1
 
@@ -637,7 +638,9 @@ void SkGpuDevice::drawRect(const SkDraw& draw, const SkRect& rect,
     bool usePath = doStroke && width > 0 &&
                     paint.getStrokeJoin() != SkPaint::kMiter_Join;
     // another two reasons we might need to call drawPath...
-    if (paint.getMaskFilter() || paint.getPathEffect()) {
+    if (paint.getMaskFilter() || 
+        paint.getPathEffect() ||
+        paint.getRasterizer()) {
         usePath = true;
     }
     if (!usePath && paint.isAntiAlias() && !fContext->getMatrix().rectStaysRect()) {
@@ -765,22 +768,41 @@ bool draw_mask(GrContext* context, const SkRect& maskRect,
     return true;
 }
 
-bool draw_with_mask_filter(GrContext* context, const SkPath& devPath,
-                           SkMaskFilter* filter, const SkRegion& clip, SkBounder* bounder,
-                           GrPaint* grp, SkPaint::Style style) {
+bool draw_with_mask_filter(GrContext* context, SkPath& path, bool pathIsMutable,
+                           SkMaskFilter* filter, SkRasterizer* rasterizer, const SkRegion& clip,
+                           SkBounder* bounder, GrPaint* grp, SkPaint::Style style) {
     SkMask  srcM, dstM;
 
-    if (!SkDraw::DrawToMask(devPath, &clip.getBounds(), filter, &context->getMatrix(), &srcM,
-                            SkMask::kComputeBoundsAndRenderImage_CreateMode, style)) {
-        return false;
+    if (rasterizer) {
+        if (!rasterizer->rasterize(path, context->getMatrix(),
+                                   &clip.getBounds(), filter, &srcM,
+                                   SkMask::kComputeBoundsAndRenderImage_CreateMode)) {
+            return false;
+        }
+    } else {
+        SkPath tmpPath;
+        SkPath* devPathPtr = pathIsMutable ? &path : &tmpPath;
+
+        // transform the path into device space
+        path.transform(context->getMatrix(), devPathPtr);
+        if (!SkDraw::DrawToMask(*devPathPtr, &clip.getBounds(), filter, &context->getMatrix(),
+                                &srcM, SkMask::kComputeBoundsAndRenderImage_CreateMode, style)) {
+            return false;
+        }
     }
+
     SkAutoMaskFreeImage autoSrc(srcM.fImage);
 
-    if (!filter->filterMask(&dstM, srcM, context->getMatrix(), NULL)) {
+    if (!filter) {
+        dstM = srcM;
+    } else if (!filter->filterMask(&dstM, srcM, context->getMatrix(), NULL)) {
         return false;
     }
+
     // this will free-up dstM when we're done (allocated in filterMask())
-    SkAutoMaskFreeImage autoDst(dstM.fImage);
+    // If we don't have a filter, then srcM and dstM are the same, so
+    // don't free it twice
+    SkAutoMaskFreeImage autoDst(filter ? dstM.fImage : NULL);
 
     if (clip.quickReject(dstM.fBounds)) {
         return false;
@@ -927,7 +949,7 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
         stroke.setHairlineStyle();
     }
 
-    if (paint.getMaskFilter()) {
+    if (paint.getMaskFilter() || paint.getRasterizer()) {
         if (!stroke.isHairlineStyle()) {
             if (stroke.applyToPath(&tmpPath, *pathPtr)) {
                 pathPtr = &tmpPath;
@@ -936,40 +958,42 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
             }
         }
 
-        // avoid possibly allocating a new path in transform if we can
-        SkPath* devPathPtr = pathIsMutable ? pathPtr : &tmpPath;
+        if (!paint.getRasterizer()) {
+            // avoid possibly allocating a new path in transform if we can
+            SkPath* devPathPtr = pathIsMutable ? pathPtr : &tmpPath;
 
-        // transform the path into device space
-        pathPtr->transform(fContext->getMatrix(), devPathPtr);
+            // transform the path into device space
+            pathPtr->transform(fContext->getMatrix(), devPathPtr);
 
-        SkRect maskRect;
-        if (paint.getMaskFilter()->canFilterMaskGPU(devPathPtr->getBounds(),
-                                                    draw.fClip->getBounds(),
-                                                    fContext->getMatrix(),
-                                                    &maskRect)) {
-            SkIRect finalIRect;
-            maskRect.roundOut(&finalIRect);
-            if (draw.fClip->quickReject(finalIRect)) {
-                // clipped out
-                return;
-            }
-            if (NULL != draw.fBounder && !draw.fBounder->doIRect(finalIRect)) {
-                // nothing to draw
-                return;
-            }
+            SkRect maskRect;
+            if (paint.getMaskFilter()->canFilterMaskGPU(devPathPtr->getBounds(),
+                                                        draw.fClip->getBounds(),
+                                                        fContext->getMatrix(),
+                                                        &maskRect)) {
+                SkIRect finalIRect;
+                maskRect.roundOut(&finalIRect);
+                if (draw.fClip->quickReject(finalIRect)) {
+                    // clipped out
+                    return;
+                }
+                if (NULL != draw.fBounder && !draw.fBounder->doIRect(finalIRect)) {
+                    // nothing to draw
+                    return;
+                }
 
-            GrAutoScratchTexture mask;
+                GrAutoScratchTexture mask;
 
-            if (create_mask_GPU(fContext, maskRect, *devPathPtr, stroke,
-                                grPaint.isAntiAlias(), &mask)) {
-                GrTexture* filtered;
+                if (create_mask_GPU(fContext, maskRect, *devPathPtr, stroke,
+                                    grPaint.isAntiAlias(), &mask)) {
+                    GrTexture* filtered;
 
-                if (paint.getMaskFilter()->filterMaskGPU(mask.texture(), maskRect, &filtered, true)) {
-                    SkAutoTUnref<GrTexture> atu(filtered);
+                    if (paint.getMaskFilter()->filterMaskGPU(mask.texture(), maskRect, &filtered, true)) {
+                        SkAutoTUnref<GrTexture> atu(filtered);
 
-                    if (draw_mask(fContext, maskRect, &grPaint, filtered)) {
-                        // This path is completely drawn
-                        return;
+                        if (draw_mask(fContext, maskRect, &grPaint, filtered)) {
+                            // This path is completely drawn
+                            return;
+                        }
                     }
                 }
             }
@@ -979,7 +1003,8 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
         // GPU path fails
         SkPaint::Style style = stroke.isHairlineStyle() ? SkPaint::kStroke_Style :
                                                           SkPaint::kFill_Style;
-        draw_with_mask_filter(fContext, *devPathPtr, paint.getMaskFilter(),
+        draw_with_mask_filter(fContext, *pathPtr, pathIsMutable,
+                              paint.getMaskFilter(), paint.getRasterizer(),
                               *draw.fClip, draw.fBounder, &grPaint, style);
         return;
     }
