@@ -141,6 +141,9 @@
 // Drag and drop
 #include "nsIDOMDataTransfer.h"
 
+// Workers
+#include "mozilla/dom/workers/Workers.h"
+
 #include "nsIDOMFile.h"
 #include "nsDOMBlobBuilder.h" // nsDOMMultipartFile
 
@@ -191,6 +194,7 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+using mozilla::dom::workers::ResolveWorkerClasses;
 
 static NS_DEFINE_CID(kDOMSOF_CID, NS_DOM_SCRIPT_OBJECT_FACTORY_CID);
 
@@ -2781,7 +2785,7 @@ GetXPCProto(nsIXPConnect *aXPConnect, JSContext *cx, nsGlobalWindow *aWin,
   NS_ENSURE_SUCCESS(rv, rv);
 
   JS::Rooted<JSObject*> proto_obj(cx, (*aProto)->GetJSObject());
-  if (!JS_WrapObject(cx, proto_obj.address())) {
+  if (!JS_WrapObject(cx, &proto_obj)) {
     return NS_ERROR_FAILURE;
   }
 
@@ -2918,7 +2922,7 @@ ResolvePrototype(nsIXPConnect *aXPConnect, nsGlobalWindow *aWin, JSContext *cx,
       if (proto &&
           (!xpc_proto_proto ||
            JS_GetClass(xpc_proto_proto) == sObjectClass)) {
-        if (!JS_WrapObject(cx, proto.address()) ||
+        if (!JS_WrapObject(cx, &proto) ||
             !JS_SetPrototype(cx, dot_prototype, proto)) {
           return NS_ERROR_UNEXPECTED;
         }
@@ -3067,7 +3071,7 @@ nsWindowSH::GlobalResolve(nsGlobalWindow *aWin, JSContext *cx,
       if (defineOnXray) {
         // This really should be handled by the Xray for the window.
         ac.destroy();
-        if (!JS_WrapObject(cx, interfaceObject.address()) ||
+        if (!JS_WrapObject(cx, &interfaceObject) ||
             !JS_DefinePropertyById(cx, obj, id,
                                    JS::ObjectValue(*interfaceObject), JS_PropertyStub,
                                    JS_StrictPropertyStub, 0)) {
@@ -3601,6 +3605,16 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
     return NS_OK;
   }
 
+  // Handle resolving if id refers to a name resolved by DOM worker code.
+  JS::RootedObject tmp(cx, NULL);
+  if (!ResolveWorkerClasses(cx, obj, id, flags, &tmp)) {
+    return NS_ERROR_FAILURE;
+  }
+  if (tmp) {
+    *objp = tmp;
+    return NS_OK;
+  }
+
   // Check for names managed by the script namespace manager.  Call
   // GlobalResolve() after we call FindChildWithName() so that named child
   // frames will override external properties which have been registered with
@@ -3630,7 +3644,7 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
     }
     funObj = ::JS_GetFunctionObject(fun);
 
-    if (!JS_WrapObject(cx, funObj.address()) ||
+    if (!JS_WrapObject(cx, &funObj) ||
         !JS_DefinePropertyById(cx, obj, id, JSVAL_VOID,
                                JS_DATA_TO_FUNC_PTR(JSPropertyOp, funObj.get()),
                                JS_StrictPropertyStub,
@@ -3731,7 +3745,7 @@ nsWindowSH::OuterObject(nsIXPConnectWrappedNative *wrapper, JSContext * cx,
   // might not be. If we're running script in an inactive scope and evalute
   // |this|, the outer window is actually a cross-compartment wrapper. So we
   // need to wrap here.
-  if (!JS_WrapObject(cx, winObj.address())) {
+  if (!JS_WrapObject(cx, &winObj)) {
     *_retval = nullptr;
     return NS_ERROR_UNEXPECTED;
   }

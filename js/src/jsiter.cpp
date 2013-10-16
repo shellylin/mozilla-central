@@ -564,37 +564,6 @@ UpdateNativeIterator(NativeIterator *ni, JSObject *obj)
 bool
 js::GetIterator(JSContext *cx, HandleObject obj, unsigned flags, MutableHandleValue vp)
 {
-    if (flags == JSITER_FOR_OF) {
-        // for-of loop. The iterator is simply |obj[@@iterator]()|.
-        RootedValue method(cx);
-        if (!JSObject::getProperty(cx, obj, obj, cx->names().std_iterator, &method))
-            return false;
-
-        // Throw if obj[@@iterator] isn't callable. js::Invoke is about to check
-        // for this kind of error anyway, but it would throw an inscrutable
-        // error message about |method| rather than this nice one about |obj|.
-        if (!method.isObject() || !method.toObject().isCallable()) {
-            RootedValue val(cx, ObjectOrNullValue(obj));
-            char *bytes = DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, val, NullPtr());
-            if (!bytes)
-                return false;
-            JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_NOT_ITERABLE, bytes);
-            js_free(bytes);
-            return false;
-        }
-
-        if (!Invoke(cx, ObjectOrNullValue(obj), method, 0, nullptr, vp))
-            return false;
-
-        JSObject *resultObj = ToObject(cx, vp);
-        if (!resultObj)
-            return false;
-        vp.setObject(*resultObj);
-        return true;
-    }
-
-    JS_ASSERT(!(flags & JSITER_FOR_OF));
-
     Vector<Shape *, 8> shapes(cx);
     uint32_t key = 0;
 
@@ -1322,6 +1291,46 @@ const Class StopIterationObject::class_ = {
 };
 
 bool
+ForOfIterator::init(HandleValue iterable)
+{
+    RootedObject iterableObj(cx, ToObject(cx, iterable));
+    if (!iterableObj)
+        return false;
+
+    // The iterator is the result of calling obj[@@iterator]().
+    InvokeArgs args(cx);
+    if (!args.init(0))
+        return false;
+    args.setThis(ObjectValue(*iterableObj));
+
+    RootedValue callee(cx);
+    if (!JSObject::getProperty(cx, iterableObj, iterableObj, cx->names().std_iterator, &callee))
+        return false;
+
+    // Throw if obj[@@iterator] isn't callable. js::Invoke is about to check
+    // for this kind of error anyway, but it would throw an inscrutable
+    // error message about |method| rather than this nice one about |obj|.
+    if (!callee.isObject() || !callee.toObject().isCallable()) {
+        char *bytes = DecompileValueGenerator(cx, JSDVG_SEARCH_STACK, iterable, NullPtr());
+        if (!bytes)
+            return false;
+        JS_ReportErrorNumber(cx, js_GetErrorMessage, nullptr, JSMSG_NOT_ITERABLE, bytes);
+        js_free(bytes);
+        return false;
+    }
+
+    args.setCallee(callee);
+    if (!Invoke(cx, args))
+        return false;
+
+    iterator = ToObject(cx, args.rval());
+    if (!iterator)
+        return false;
+
+    return true;
+}
+
+bool
 ForOfIterator::next(MutableHandleValue vp, bool *done)
 {
     JS_ASSERT(iterator);
@@ -1557,7 +1566,7 @@ js_NewGenerator(JSContext *cx, const FrameRegs &stackRegs)
         RootedObject fun(cx, stackfp->fun());
         // FIXME: This would be faster if we could avoid doing a lookup to get
         // the prototype for the instance.  Bug 906600.
-        if (!JSObject::getProperty(cx, fun, fun, cx->names().classPrototype, &pval))
+        if (!JSObject::getProperty(cx, fun, fun, cx->names().prototype, &pval))
             return nullptr;
         JSObject *proto = pval.isObject() ? &pval.toObject() : nullptr;
         if (!proto) {
@@ -1949,8 +1958,8 @@ GlobalObject::initIteratorClasses(JSContext *cx, Handle<GlobalObject *> global)
             return false;
 
         global->setSlot(STAR_GENERATOR_OBJECT_PROTO, ObjectValue(*genObjectProto));
-        global->setSlot(JSProto_GeneratorFunction, ObjectValue(*genFunction));
-        global->setSlot(JSProto_GeneratorFunction + JSProto_LIMIT, ObjectValue(*genFunctionProto));
+        global->setConstructor(JSProto_GeneratorFunction, ObjectValue(*genFunction));
+        global->setPrototype(JSProto_GeneratorFunction, ObjectValue(*genFunctionProto));
     }
 
     if (global->getPrototype(JSProto_StopIteration).isUndefined()) {
@@ -1962,7 +1971,7 @@ GlobalObject::initIteratorClasses(JSContext *cx, Handle<GlobalObject *> global)
         if (!DefineConstructorAndPrototype(cx, global, JSProto_StopIteration, proto, proto))
             return false;
 
-        MarkStandardClassInitializedNoProto(global, &StopIterationObject::class_);
+        global->markStandardClassInitializedNoProto(&StopIterationObject::class_);
     }
 
     return true;

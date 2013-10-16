@@ -264,12 +264,12 @@ StackFrame::prologue(JSContext *cx)
             pushOnScopeChain(*callobj);
             flags_ |= HAS_CALL_OBJ;
         }
-        Probes::enterScript(cx, script, nullptr, this);
+        probes::EnterScript(cx, script, nullptr, this);
         return true;
     }
 
     if (isGlobalFrame()) {
-        Probes::enterScript(cx, script, nullptr, this);
+        probes::EnterScript(cx, script, nullptr, this);
         return true;
     }
 
@@ -287,7 +287,7 @@ StackFrame::prologue(JSContext *cx)
         functionThis() = ObjectValue(*obj);
     }
 
-    Probes::enterScript(cx, script, script->function(), this);
+    probes::EnterScript(cx, script, script->function(), this);
     return true;
 }
 
@@ -298,7 +298,7 @@ StackFrame::epilogue(JSContext *cx)
     JS_ASSERT(!hasBlockChain());
 
     RootedScript script(cx, this->script());
-    Probes::exitScript(cx, script, script->function(), this);
+    probes::ExitScript(cx, script, script->function(), this);
 
     if (isEvalFrame()) {
         if (isStrictEvalFrame()) {
@@ -1334,32 +1334,6 @@ jit::JitActivation::setActive(JSContext *cx, bool active)
         cx->mainThread().ionTop = prevIonTop_;
         cx->mainThread().ionJSContext = prevIonJSContext_;
     }
-}
-
-ForkJoinActivation::ForkJoinActivation(JSContext *cx)
-  : Activation(cx, ForkJoin),
-    prevIonTop_(cx->mainThread().ionTop)
-{
-    // Note: we do not allow GC during parallel sections.
-    // Moreover, we do not wish to worry about making
-    // write barriers thread-safe.  Therefore, we guarantee
-    // that there is no incremental GC in progress and force
-    // a minor GC to ensure no cross-generation pointers get
-    // created:
-
-    if (JS::IsIncrementalGCInProgress(cx->runtime())) {
-        JS::PrepareForIncrementalGC(cx->runtime());
-        JS::FinishIncrementalGC(cx->runtime(), JS::gcreason::API);
-    }
-
-    MinorGC(cx->runtime(), JS::gcreason::API);
-
-    cx->runtime()->gcHelperThread.waitBackgroundSweepEnd();
-}
-
-ForkJoinActivation::~ForkJoinActivation()
-{
-    cx_->mainThread().ionTop = prevIonTop_;
 }
 
 InterpreterFrameIterator &

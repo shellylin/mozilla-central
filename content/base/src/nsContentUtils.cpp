@@ -924,6 +924,7 @@ nsContentUtils::ParseSandboxAttributeToFlags(const nsAString& aSandboxAttrValue)
   // If there's a sandbox attribute at all (and there is if this is being
   // called), start off by setting all the restriction flags.
   uint32_t out = SANDBOXED_NAVIGATION |
+                 SANDBOXED_AUXILIARY_NAVIGATION |
                  SANDBOXED_TOPLEVEL_NAVIGATION |
                  SANDBOXED_PLUGINS |
                  SANDBOXED_ORIGIN |
@@ -954,6 +955,8 @@ nsContentUtils::ParseSandboxAttributeToFlags(const nsAString& aSandboxAttrValue)
         out &= ~SANDBOXED_TOPLEVEL_NAVIGATION;
       } else if (token.LowerCaseEqualsLiteral("allow-pointer-lock")) {
         out &= ~SANDBOXED_POINTER_LOCK;
+      } else if (token.LowerCaseEqualsLiteral("allow-popups")) {
+        out &= ~SANDBOXED_AUXILIARY_NAVIGATION;
       }
     }
   }
@@ -3630,7 +3633,7 @@ nsContentUtils::HasMutationListeners(nsINode* aNode,
   if (aNode->IsInDoc()) {
     nsCOMPtr<EventTarget> piTarget(do_QueryInterface(window));
     if (piTarget) {
-      nsEventListenerManager* manager = piTarget->GetExistingListenerManager();
+      nsEventListenerManager* manager = piTarget->GetListenerManager(false);
       if (manager && manager->HasMutationListeners()) {
         return true;
       }
@@ -3641,7 +3644,7 @@ nsContentUtils::HasMutationListeners(nsINode* aNode,
   // might not be in our chain.  If we don't have a window, we might have a
   // mutation listener.  Check quickly to see.
   while (aNode) {
-    nsEventListenerManager* manager = aNode->GetExistingListenerManager();
+    nsEventListenerManager* manager = aNode->GetListenerManager(false);
     if (manager && manager->HasMutationListeners()) {
       return true;
     }
@@ -3763,12 +3766,28 @@ nsContentUtils::TraverseListenerManager(nsINode *aNode,
 }
 
 nsEventListenerManager*
-nsContentUtils::GetListenerManagerForNode(nsINode *aNode)
+nsContentUtils::GetListenerManager(nsINode *aNode,
+                                   bool aCreateIfNotFound)
 {
+  if (!aCreateIfNotFound && !aNode->HasFlag(NODE_HAS_LISTENERMANAGER)) {
+    return nullptr;
+  }
+  
   if (!sEventListenerManagersHash.ops) {
     // We're already shut down, don't bother creating an event listener
     // manager.
 
+    return nullptr;
+  }
+
+  if (!aCreateIfNotFound) {
+    EventListenerManagerMapEntry *entry =
+      static_cast<EventListenerManagerMapEntry *>
+                 (PL_DHashTableOperate(&sEventListenerManagersHash, aNode,
+                                          PL_DHASH_LOOKUP));
+    if (PL_DHASH_ENTRY_IS_BUSY(entry)) {
+      return entry->mListenerManager;
+    }
     return nullptr;
   }
 
@@ -3788,31 +3807,6 @@ nsContentUtils::GetListenerManagerForNode(nsINode *aNode)
   }
 
   return entry->mListenerManager;
-}
-
-nsEventListenerManager*
-nsContentUtils::GetExistingListenerManagerForNode(const nsINode *aNode)
-{
-  if (!aNode->HasFlag(NODE_HAS_LISTENERMANAGER)) {
-    return nullptr;
-  }
-  
-  if (!sEventListenerManagersHash.ops) {
-    // We're already shut down, don't bother creating an event listener
-    // manager.
-
-    return nullptr;
-  }
-
-  EventListenerManagerMapEntry *entry =
-    static_cast<EventListenerManagerMapEntry *>
-               (PL_DHashTableOperate(&sEventListenerManagersHash, aNode,
-                                        PL_DHASH_LOOKUP));
-  if (PL_DHASH_ENTRY_IS_BUSY(entry)) {
-    return entry->mListenerManager;
-  }
-
-  return nullptr;
 }
 
 /* static */
