@@ -119,6 +119,8 @@ endif
 # To get debug symbols from NSS
 export MOZ_DEBUG_SYMBOLS
 
+include $(topsrcdir)/config/config.mk
+
 DEFAULT_GMAKE_FLAGS =
 DEFAULT_GMAKE_FLAGS += CC="$(CC)"
 DEFAULT_GMAKE_FLAGS += SOURCE_MD_DIR=$(ABS_DIST)
