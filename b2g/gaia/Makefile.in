@@ -18,6 +18,7 @@ DEFINES += \
 endif
 
 ifdef .PYMAKE
+# For use of GNU make in pymake builds.
 GAIA_MAKE=$(GMAKE)
 else
 GAIA_MAKE=$(MAKE)
