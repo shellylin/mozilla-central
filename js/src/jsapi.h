@@ -1041,9 +1041,6 @@ JS_ValueToString(JSContext *cx, jsval v);
 extern JS_PUBLIC_API(JSString *)
 JS_ValueToSource(JSContext *cx, jsval v);
 
-extern JS_PUBLIC_API(bool)
-JS_ValueToNumber(JSContext *cx, jsval v, double *dp);
-
 namespace js {
 /*
  * DO NOT CALL THIS.  Use JS::ToNumber
@@ -3472,7 +3469,7 @@ class JS_PUBLIC_API(CompileOptions)
     }
     CompileOptions &setSourceMapURL(const jschar *s) { sourceMapURL = s; return *this; }
     CompileOptions &setColumn(unsigned c) { column = c; return *this; }
-    CompileOptions &setElement(Handle<JSObject*> e) { element = e; return *this; }
+    CompileOptions &setElement(Handle<JSObject*> e) { element.repoint(e); return *this; }
     CompileOptions &setCompileAndGo(bool cng) { compileAndGo = cng; return *this; }
     CompileOptions &setForEval(bool eval) { forEval = eval; return *this; }
     CompileOptions &setNoScriptRval(bool nsr) { noScriptRval = nsr; return *this; }

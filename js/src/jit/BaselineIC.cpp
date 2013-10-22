@@ -6015,7 +6015,7 @@ DoGetPropFallback(JSContext *cx, BaselineFrame *frame, ICGetProp_Fallback *stub,
 
 #if JS_HAS_NO_SUCH_METHOD
     // Handle objects with __noSuchMethod__.
-    if (op == JSOP_CALLPROP && JS_UNLIKELY(res.isPrimitive()) && val.isObject()) {
+    if (op == JSOP_CALLPROP && JS_UNLIKELY(res.isUndefined()) && val.isObject()) {
         if (!OnUnknownMethod(cx, obj, IdToValue(id), res))
             return false;
     }
@@ -7454,7 +7454,9 @@ GetTemplateObjectForNative(JSContext *cx, HandleScript script, jsbytecode *pc,
     }
 
     if (native == js::array_concat) {
-        if (args.thisv().isObject() && args.thisv().toObject().is<ArrayObject>()) {
+        if (args.thisv().isObject() && args.thisv().toObject().is<ArrayObject>() &&
+            !args.thisv().toObject().hasSingletonType())
+        {
             res.set(NewDenseEmptyArray(cx, args.thisv().toObject().getProto(), TenuredObject));
             if (!res)
                 return false;
