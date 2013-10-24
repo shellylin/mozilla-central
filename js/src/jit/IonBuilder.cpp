@@ -48,9 +48,9 @@ IonBuilder::IonBuilder(JSContext *cx, TempAllocator *temp, MIRGraph *graph,
     abortReason_(AbortReason_Disable),
     constraints_(constraints),
     analysis_(info->script()),
-    thisTypes(NULL),
-    argTypes(NULL),
-    typeArray(NULL),
+    thisTypes(nullptr),
+    argTypes(nullptr),
+    typeArray(nullptr),
     typeArrayHint(0),
     loopDepth_(loopDepth),
     callerResumePoint_(nullptr),
@@ -66,6 +66,8 @@ IonBuilder::IonBuilder(JSContext *cx, TempAllocator *temp, MIRGraph *graph,
 {
     script_.init(info->script());
     pc = info->startPC();
+
+    JS_ASSERT(script()->hasBaselineScript());
 }
 
 void
@@ -279,8 +281,15 @@ IonBuilder::canInlineTarget(JSFunction *target, bool constructing)
     // Allow constructing lazy scripts when performing the definite properties
     // analysis, as baseline has not been used to warm the caller up yet.
     if (target->isInterpretedLazy() && info().executionMode() == DefinitePropertiesAnalysis) {
-        if (!target->getOrCreateScript(cx))
+        if (!target->getOrCreateScript(context()))
             return false;
+
+        RootedScript script(context(), target->nonLazyScript());
+        if (!script->hasBaselineScript()) {
+            MethodStatus status = BaselineCompile(context(), script);
+            if (status != Method_Compiled)
+                return false;
+        }
     }
 
     if (!target->hasScript()) {
@@ -301,8 +310,8 @@ IonBuilder::canInlineTarget(JSFunction *target, bool constructing)
         return false;
     }
 
-    // Don't inline functions which don't have baseline scripts compiled for them.
-    if (executionMode == SequentialExecution && !inlineScript->hasBaselineScript()) {
+    // Don't inline functions which don't have baseline scripts.
+    if (!inlineScript->hasBaselineScript()) {
         IonSpew(IonSpew_Inlining, "%s:%d Cannot inline target with no baseline jitcode",
                                   inlineScript->filename(), inlineScript->lineno);
         return false;
@@ -513,16 +522,13 @@ IonBuilder::pushLoop(CFGState::State initial, jsbytecode *stopAt, MBasicBlock *e
 bool
 IonBuilder::init()
 {
-    if (!script()->ensureHasBytecodeTypeMap(cx))
-        return false;
-
     if (!types::TypeScript::FreezeTypeSets(constraints(), script(),
                                            &thisTypes, &argTypes, &typeArray))
     {
         return false;
     }
 
-    if (!analysis().init(cx))
+    if (!analysis().init(gsn))
         return false;
 
     return true;
@@ -555,11 +561,14 @@ IonBuilder::build()
     // start instruction, but the snapshot is encoded *at* the start
     // instruction, which means generating any code that could load into
     // registers is illegal.
-    {
-        MInstruction *scope = MConstant::New(UndefinedValue());
-        current->add(scope);
-        current->initSlot(info().scopeChainSlot(), scope);
-    }
+    MInstruction *scope = MConstant::New(UndefinedValue());
+    current->add(scope);
+    current->initSlot(info().scopeChainSlot(), scope);
+
+    // Initialize the return value.
+    MInstruction *returnValue = MConstant::New(UndefinedValue());
+    current->add(returnValue);
+    current->initSlot(info().returnValueSlot(), returnValue);
 
     // Initialize the arguments object slot to undefined if necessary.
     if (info().hasArguments()) {
@@ -711,11 +720,14 @@ IonBuilder::buildInline(IonBuilder *callerBuilder, MResumePoint *callerResumePoi
         return false;
 
     // Initialize scope chain slot to Undefined.  It's set later by |initScopeChain|.
-    {
-        MInstruction *scope = MConstant::New(UndefinedValue());
-        current->add(scope);
-        current->initSlot(info().scopeChainSlot(), scope);
-    }
+    MInstruction *scope = MConstant::New(UndefinedValue());
+    current->add(scope);
+    current->initSlot(info().scopeChainSlot(), scope);
+
+    // Initialize |return value| slot.
+    MInstruction *returnValue = MConstant::New(UndefinedValue());
+    current->add(returnValue);
+    current->initSlot(info().returnValueSlot(), returnValue);
 
     // Initialize |arguments| slot.
     if (info().hasArguments()) {
@@ -1197,6 +1209,8 @@ IonBuilder::traverseBytecode()
               case JSOP_SWAP:
               case JSOP_SETARG:
               case JSOP_SETLOCAL:
+              case JSOP_SETRVAL:
+              case JSOP_POPV:
               case JSOP_VOID:
                 // Don't require SSA uses for values popped by these ops.
                 break;
@@ -1246,6 +1260,7 @@ IonBuilder::snoopControlFlow(JSOp op)
 
       case JSOP_RETURN:
       case JSOP_STOP:
+      case JSOP_RETRVAL:
         return processReturn(op);
 
       case JSOP_THROW:
@@ -1649,6 +1664,12 @@ IonBuilder::inspectOpcode(JSOp op)
 
       case JSOP_IN:
         return jsop_in();
+
+      case JSOP_SETRVAL:
+      case JSOP_POPV:
+        JS_ASSERT(!script()->noScriptRval);
+        current->setSlot(info().returnValueSlot(), current->pop());
+        return true;
 
       case JSOP_INSTANCEOF:
         return jsop_instanceof();
@@ -3441,16 +3462,24 @@ IonBuilder::processReturn(JSOp op)
     MDefinition *def;
     switch (op) {
       case JSOP_RETURN:
+        // Return the last instruction.
         def = current->pop();
         break;
 
       case JSOP_STOP:
-      {
-        MInstruction *ins = MConstant::New(UndefinedValue());
-        current->add(ins);
-        def = ins;
+        // Return undefined eagerly if script doesn't use return value.
+        if (script()->noScriptRval) {
+            MInstruction *ins = MConstant::New(UndefinedValue());
+            current->add(ins);
+            def = ins;
+            break;
+        }
+
+        // Fall through
+      case JSOP_RETRVAL:
+        // Return the value in the return value slot.
+        def = current->getSlot(info().returnValueSlot());
         break;
-      }
 
       default:
         def = nullptr;
@@ -3753,7 +3782,7 @@ IonBuilder::inlineScriptedCall(CallInfo &callInfo, JSFunction *target)
     current->push(callInfo.fun());
 
     JSScript *calleeScript = target->nonLazyScript();
-    BaselineInspector inspector(cx, calleeScript);
+    BaselineInspector inspector(calleeScript);
 
     // Improve type information of |this| when not set.
     if (callInfo.constructing() &&
@@ -4496,20 +4525,9 @@ IonBuilder::inlineCalls(CallInfo &callInfo, ObjectVector &targets,
 MInstruction *
 IonBuilder::createDeclEnvObject(MDefinition *callee, MDefinition *scope)
 {
-    // Create a template CallObject that we'll use to generate inline object
-    // creation. Even though this template will get discarded at the end of
-    // compilation, it is used by the background compilation thread and thus
-    // cannot use the Nursery.
-
-    RootedFunction fun(cx, info().fun());
-    RootedObject templateObj(cx, DeclEnvObject::createTemplateObject(cx, fun, gc::TenuredHeap));
-    if (!templateObj)
-        return nullptr;
-
-    // Add dummy values on the slot of the template object such as we do not try
-    // mark uninitialized values.
-    templateObj->setFixedSlot(DeclEnvObject::enclosingScopeSlot(), MagicValue(JS_GENERIC_MAGIC));
-    templateObj->setFixedSlot(DeclEnvObject::lambdaSlot(), MagicValue(JS_GENERIC_MAGIC));
+    // Get a template CallObject that we'll use to generate inline object
+    // creation.
+    DeclEnvObject *templateObj = inspector->templateDeclEnvObject();
 
     // One field is added to the function to handle its name.  This cannot be a
     // dynamic slot because there is still plenty of room on the DeclEnv object.
@@ -4534,15 +4552,9 @@ IonBuilder::createDeclEnvObject(MDefinition *callee, MDefinition *scope)
 MInstruction *
 IonBuilder::createCallObject(MDefinition *callee, MDefinition *scope)
 {
-    // Create a template CallObject that we'll use to generate inline object
-    // creation. Even though this template will get discarded at the end of
-    // compilation, it is used by the background compilation thread and thus
-    // cannot use the Nursery.
-
-    RootedScript scriptRoot(cx, script());
-    RootedObject templateObj(cx, CallObject::createTemplateObject(cx, scriptRoot, gc::TenuredHeap));
-    if (!templateObj)
-        return nullptr;
+    // Get a template CallObject that we'll use to generate inline object
+    // creation.
+    CallObject *templateObj = inspector->templateCallObject();
 
     // If the CallObject needs dynamic slots, allocate those now.
     MInstruction *slots;
@@ -4602,11 +4614,11 @@ IonBuilder::createThisScripted(MDefinition *callee)
     //       and thus invalidation.
     MInstruction *getProto;
     if (!invalidatedIdempotentCache()) {
-        MGetPropertyCache *getPropCache = MGetPropertyCache::New(callee, cx->names().prototype);
+        MGetPropertyCache *getPropCache = MGetPropertyCache::New(callee, names().prototype);
         getPropCache->setIdempotent();
         getProto = getPropCache;
     } else {
-        MCallGetProperty *callGetProp = MCallGetProperty::New(callee, cx->names().prototype,
+        MCallGetProperty *callGetProp = MCallGetProperty::New(callee, names().prototype,
                                                               /* callprop = */ false);
         callGetProp->setIdempotent();
         getProto = callGetProp;
@@ -4629,7 +4641,7 @@ IonBuilder::getSingletonPrototype(JSFunction *target)
     if (targetType->unknownProperties())
         return nullptr;
 
-    jsid protoid = NameToId(cx->names().prototype);
+    jsid protoid = NameToId(names().prototype);
     types::HeapTypeSetKey protoProperty = targetType->property(protoid);
 
     return protoProperty.singleton(constraints());
@@ -5676,6 +5688,16 @@ IonBuilder::newOsrPreheader(MBasicBlock *predecessor, jsbytecode *loopEntry)
         osrBlock->add(scopev);
         osrBlock->initSlot(slot, scopev);
     }
+    // Initialize |return value|
+    {
+        MInstruction *returnValue;
+        if (!script()->noScriptRval)
+            returnValue = MOsrReturnValue::New(entry);
+        else
+            returnValue = MConstant::New(UndefinedValue());
+        osrBlock->add(returnValue);
+        osrBlock->initSlot(info().returnValueSlot(), returnValue);
+    }
 
     // Initialize arguments object.
     bool needsArgsObj = info().needsArgsObj();
@@ -6107,7 +6129,7 @@ IonBuilder::pushTypeBarrier(MInstruction *ins, types::TemporaryTypeSet *observed
 {
     // Barriers are never needed for instructions whose result will not be used.
     if (BytecodeIsPopped(pc))
-        needsBarrier = false;
+        return true;
 
     // If the instruction has no side effects, we'll resume the entire operation.
     // The actual type barrier will occur in the interpreter. If the
@@ -6177,12 +6199,12 @@ IonBuilder::getStaticName(JSObject *staticObject, PropertyName *name, bool *psuc
 
     if (staticObject->is<GlobalObject>()) {
         // Optimize undefined, NaN, and Infinity.
-        if (name == cx->names().undefined)
+        if (name == names().undefined)
             return pushConstant(UndefinedValue());
-        if (name == cx->names().NaN)
-            return pushConstant(cx->runtime()->NaNValue);
-        if (name == cx->names().Infinity)
-            return pushConstant(cx->runtime()->positiveInfinityValue);
+        if (name == names().NaN)
+            return pushConstant(compartment->runtimeFromAnyThread()->NaNValue);
+        if (name == names().Infinity)
+            return pushConstant(compartment->runtimeFromAnyThread()->positiveInfinityValue);
     }
 
     // For the fastest path, the property must be found, and it must be found
@@ -9409,7 +9431,7 @@ IonBuilder::jsop_instanceof()
             break;
 
         types::HeapTypeSetKey protoProperty =
-            rhsType->property(NameToId(cx->names().prototype));
+            rhsType->property(NameToId(names().prototype));
         JSObject *protoObject = protoProperty.singleton(constraints());
         if (!protoObject)
             break;
@@ -9537,7 +9559,7 @@ IonBuilder::loadTypedObjectType(MDefinition *typedObj)
         return typedObj->toNewDerivedTypedObject()->type();
 
     MInstruction *load = MLoadFixedSlot::New(typedObj,
-                                             JS_TYPEDOBJ_SLOT_TYPE_OBJ);
+                                             JS_DATUM_SLOT_TYPE_OBJ);
     current->add(load);
     return load;
 }

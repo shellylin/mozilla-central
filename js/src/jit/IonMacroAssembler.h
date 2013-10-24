@@ -240,10 +240,10 @@ class MacroAssembler : public MacroAssemblerSpecific
     MacroAssembler(JSContext *cx, IonScript *ion)
       : enoughMemory_(true),
         embedsNurseryPointers_(false),
-        sps_(NULL)
+        sps_(nullptr)
     {
         constructRoot(cx);
-         ionContext_.construct(cx, (js::jit::TempAllocator *)NULL);
+         ionContext_.construct(cx, (js::jit::TempAllocator *)nullptr);
          alloc_.construct(cx);
 #ifdef JS_CPU_ARM
          initWithAllocator();
@@ -737,10 +737,9 @@ class MacroAssembler : public MacroAssemblerSpecific
 
     using MacroAssemblerSpecific::extractTag;
     Register extractTag(const TypedOrValueRegister &reg, Register scratch) {
-        if (reg.hasValue()) {
+        if (reg.hasValue())
             return extractTag(reg.valueReg(), scratch);
-        }
-        mov(ImmWord(ValueTypeFromMIRType(reg.type())), scratch);
+        mov(ImmWord(MIRTypeToTag(reg.type())), scratch);
         return scratch;
     }
 

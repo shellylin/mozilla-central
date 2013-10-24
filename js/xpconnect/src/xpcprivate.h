@@ -3627,10 +3627,11 @@ public:
     virtual bool Parse() = 0;
 
 protected:
-    bool ParseValue(const char *name, JS::MutableHandleValue prop, bool *found);
+    bool ParseValue(const char *name, JS::MutableHandleValue prop, bool *found = nullptr);
     bool ParseBoolean(const char *name, bool *prop);
     bool ParseObject(const char *name, JS::MutableHandleObject prop);
     bool ParseString(const char *name, nsCString &prop);
+    bool ParseId(const char* name, JS::MutableHandleId id);
 
     JSContext *mCx;
     JS::RootedObject mObject;
@@ -3662,6 +3663,19 @@ public:
 
 protected:
     bool ParseGlobalProperties();
+};
+
+class MOZ_STACK_CLASS CreateObjectInOptions : public OptionsBase {
+public:
+    CreateObjectInOptions(JSContext *cx = xpc_GetSafeJSContext(),
+                          JS::HandleObject options = JS::NullPtr())
+        : OptionsBase(cx, options)
+        , defineAs(cx, JSID_VOID)
+    { }
+
+    virtual bool Parse() { return ParseId("defineAs", &defineAs); };
+
+    JS::RootedId defineAs;
 };
 
 JSObject *
@@ -3706,6 +3720,10 @@ nsresult
 SetSandboxMetadata(JSContext *cx, JS::HandleObject sandboxArg,
                    JS::HandleValue metadata);
 
+bool
+CreateObjectIn(JSContext *cx, JS::HandleValue vobj, CreateObjectInOptions &options,
+               JS::MutableHandleValue rval);
+
 } /* namespace xpc */
 
 
@@ -3726,6 +3744,8 @@ public:
     CompartmentPrivate()
         : wantXrays(false)
         , universalXPConnectEnabled(false)
+        , adoptedNode(false)
+        , donatedNode(false)
         , scope(nullptr)
         , locationWasParsed(false)
     {
@@ -3741,6 +3761,10 @@ public:
     // enablePrivilege. Once set, this value is never unset (i.e., it doesn't follow
     // the old scoping rules of enablePrivilege). Using it is inherently unsafe.
     bool universalXPConnectEnabled;
+
+    // for telemetry. See bug 928476.
+    bool adoptedNode;
+    bool donatedNode;
 
     // Our XPCWrappedNativeScope. This is non-null if and only if this is an
     // XPConnect compartment.
