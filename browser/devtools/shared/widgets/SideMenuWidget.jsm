@@ -166,7 +166,8 @@ SideMenuWidget.prototype = {
    *        The element associated with the displayed item.
    */
   removeChild: function(aChild) {
-    if (aChild.classList.contains("side-menu-widget-item-contents")) {
+    if (aChild.classList.contains("side-menu-widget-item-contents") &&
+       !aChild.classList.contains("side-menu-widget-item")) {
       // Remove the item itself, not the contents.
       aChild.parentNode.remove();
     } else {
@@ -486,7 +487,6 @@ function SideMenuGroup(aWidget, aName, aOptions={}) {
     if (aOptions.showCheckbox) {
       let checkbox = this._checkbox = makeCheckbox(title, { description: aName });
       checkbox.className = "side-menu-widget-group-checkbox";
-      checkbox.setAttribute("align", "start");
     }
 
     title.appendChild(name);
@@ -591,7 +591,6 @@ function SideMenuItem(aGroup, aContents, aTooltip, aAttachment={}, aOptions={}) 
     if (aOptions.showCheckbox) {
       let checkbox = this._checkbox = makeCheckbox(container, aAttachment);
       checkbox.className = "side-menu-widget-item-checkbox";
-      checkbox.setAttribute("align", "start");
     }
 
     container.appendChild(target);

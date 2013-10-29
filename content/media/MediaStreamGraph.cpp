@@ -499,16 +499,18 @@ MediaStreamGraphImpl::UpdateStreamOrderForStream(mozilla::LinkedList<MediaStream
       // mute all nodes we find, or just mute the node itself.
       if (!iter) {
         // The node is connected to itself.
+        // There can't be a non-AudioNodeStream here, because only AudioNodes
+        // can be self-connected.
         iter = aStack->getLast();
+        MOZ_ASSERT(iter->AsAudioNodeStream());
         iter->AsAudioNodeStream()->Mute();
       } else {
         MOZ_ASSERT(iter);
         do {
-          // There can't be non-AudioNodeStream here, MediaStreamAudio{Source,
-          // Destination}Node are connected to regular MediaStreams, but they can't be
-          // in a cycle (there is no content API to do so).
-          MOZ_ASSERT(iter->AsAudioNodeStream());
-          iter->AsAudioNodeStream()->Mute();
+          AudioNodeStream* nodeStream = iter->AsAudioNodeStream();
+          if (nodeStream) {
+            nodeStream->Mute();
+          }
         } while((iter = iter->getNext()));
       }
     }
@@ -770,6 +772,10 @@ MediaStreamGraphImpl::CreateOrDestroyAudioStreams(GraphTime aAudioOutputStartTim
         // match the system's ideal channel configuration.
         audioOutputStream->mStream->Init(2, tracks->GetRate(), AUDIO_CHANNEL_NORMAL, AudioStream::LowLatency);
         audioOutputStream->mTrackID = tracks->GetID();
+
+        LogLatency(AsyncLatencyLogger::AudioStreamCreate,
+                   reinterpret_cast<uint64_t>(aStream),
+                   reinterpret_cast<int64_t>(audioOutputStream->mStream.get()));
       }
     }
   }
@@ -852,8 +858,9 @@ MediaStreamGraphImpl::PlayAudio(MediaStream* aStream,
                              aStream, MediaTimeToSeconds(t), MediaTimeToSeconds(end),
                              startTicks, endTicks));
       }
-      // XXX need unique id for stream & track
-      output.WriteTo((((uint64_t)i) << 32) | track->GetID(), audioOutput.mStream);
+      // Need unique id for stream & track - and we want it to match the inserter
+      output.WriteTo(LATENCY_STREAM_ID(aStream, track->GetID()),
+                     audioOutput.mStream);
       t = end;
     }
   }

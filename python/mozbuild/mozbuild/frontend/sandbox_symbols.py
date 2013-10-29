@@ -78,6 +78,15 @@ VARIABLES = {
         Accepts assembler, C, C++, Objective C/C++.
         """, 'compile'),
 
+    'UNIFIED_SOURCES': (StrictOrderingOnAppendList, list, [],
+        """Source code files that can be compiled together.
+
+        This variable contains a list of source code files to compile,
+        that can be concatenated all together and built as a single source
+        file. This can help make the build faster and reduce the debug info
+        size.
+        """, 'compile'),
+
     'DEFINES': (OrderedDict, dict, OrderedDict(),
         """Dictionary of compiler defines to declare.
 
@@ -209,6 +218,13 @@ VARIABLES = {
         """Name of target library generated when cross compiling.
         """, 'binaries'),
 
+    'JAVA_JAR_TARGETS': (dict, dict, {},
+        """Defines Java JAR targets to be built.
+
+        This variable should not be populated directly. Instead, it should
+        populated by calling add_java_jar().
+        """, 'binaries'),
+
     'JS_MODULES_PATH': (unicode, unicode, "",
         """Sub-directory of ``$(FINAL_TARGET)`` to install
         ``EXTRA_JS_MODULES``.
@@ -248,6 +264,10 @@ VARIABLES = {
 
     'MSVC_ENABLE_PGO': (bool, bool, False,
         """Whether profile-guided optimization is enabled in this directory.
+        """, None),
+
+    'NO_VISIBILITY_FLAGS': (bool, bool, False,
+        """Build sources listed in this file without VISIBILITY_FLAGS.
         """, None),
 
     'OS_LIBS': (list, list, [],
@@ -337,6 +357,14 @@ VARIABLES = {
         ``{path}.in``. The contents of this file will be read and variable
         patterns like ``@foo@`` will be substituted with the values of the
         ``AC_SUBST`` variables declared during configure.
+        """, None),
+
+    'CONFIGURE_DEFINE_FILES': (StrictOrderingOnAppendList, list, [],
+        """Output files generated from configure/config.status.
+
+        This is a substitute for ``AC_CONFIG_HEADER`` in autoconf. This is very
+        similar to ``CONFIGURE_SUBST_FILES`` except the generation logic takes
+        into account the values of ``AC_DEFINE`` instead of ``AC_SUBST``.
         """, None),
 
     'MODULE': (unicode, unicode, "",
@@ -533,6 +561,19 @@ FUNCTIONS = {
         Include ``foo.build`` from a path within the top source directory::
 
            include('/elsewhere/foo.build')
+        """),
+
+    'add_java_jar': ('_add_java_jar', (str,),
+        """Declare a Java JAR target to be built.
+
+        This is the supported way to populate the JAVA_JAR_TARGETS
+        variable.
+
+        The parameters are:
+        * dest - target name, without the trailing .jar. (required)
+
+        This returns a rich Java JAR type, described at
+        :py:class:`mozbuild.frontend.data.JavaJarData`.
         """),
 
     'add_tier_dir': ('_add_tier_directory', (str, [str, list], bool, bool),

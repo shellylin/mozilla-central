@@ -24,7 +24,6 @@
 #include "nsINameSpaceManager.h"
 #include "nsIPersistentProperties2.h"
 #include "nsISelectionController.h"
-#include "jsapi.h"
 #include "nsIServiceManager.h"
 #include "nsITextControlFrame.h"
 
@@ -306,6 +305,21 @@ HTMLTextFieldAccessible::NativeRole()
   return roles::ENTRY;
 }
 
+already_AddRefed<nsIPersistentProperties>
+HTMLTextFieldAccessible::NativeAttributes()
+{
+  nsCOMPtr<nsIPersistentProperties> attributes =
+    HyperTextAccessibleWrap::NativeAttributes();
+
+  // Expose type for text input elements as it gives some useful context,
+  // especially for mobile.
+  nsAutoString type;
+  if (mContent->GetAttr(kNameSpaceID_None, nsGkAtoms::type, type))
+    nsAccUtils::SetAccAttr(attributes, nsGkAtoms::textInputType, type);
+
+  return attributes.forget();
+}
+
 ENameValueFlag
 HTMLTextFieldAccessible::NativeName(nsString& aName)
 {
@@ -518,9 +532,7 @@ HTMLFileInputAccessible::HandleAccEvent(AccEvent* aEvent)
     if (button && button->Role() == roles::PUSHBUTTON) {
       nsRefPtr<AccStateChangeEvent> childEvent =
         new AccStateChangeEvent(button, event->GetState(),
-                                event->IsStateEnabled(),
-                                (event->IsFromUserInput() ? eFromUserInput
-                                                          : eNoUserInput));
+                                event->IsStateEnabled(), event->FromUserInput());
       nsEventShell::FireEvent(childEvent);
     }
   }

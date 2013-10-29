@@ -53,8 +53,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "BrowserNewTabPreloader",
 XPCOMUtils.defineLazyModuleGetter(this, "PdfJs",
                                   "resource://pdf.js/PdfJs.jsm");
 
+#ifdef NIGHTLY_BUILD
 XPCOMUtils.defineLazyModuleGetter(this, "ShumwayUtils",
                                   "resource://shumway/ShumwayUtils.jsm");
+#endif
 
 XPCOMUtils.defineLazyModuleGetter(this, "webrtcUI",
                                   "resource:///modules/webrtcUI.jsm");
@@ -469,7 +471,9 @@ BrowserGlue.prototype = {
     BrowserNewTabPreloader.init();
     SignInToWebsiteUX.init();
     PdfJs.init();
+#ifdef NIGHTLY_BUILD
     ShumwayUtils.init();
+#endif
     webrtcUI.init();
     AboutHome.init();
     SessionStore.init();
@@ -1960,13 +1964,21 @@ ContentPermissionPrompt.prototype = {
 
   prompt: function CPP_prompt(request) {
 
+    // Only allow exactly one permission rquest here.
+    let types = request.types.QueryInterface(Ci.nsIArray);
+    if (types.length != 1) {
+      request.cancel();
+      return;
+    }
+    let perm = types.queryElementAt(0, Ci.nsIContentPermissionType);
+
     const kFeatureKeys = { "geolocation" : "geo",
                            "desktop-notification" : "desktop-notification",
                            "pointerLock" : "pointerLock",
                          };
 
     // Make sure that we support the request.
-    if (!(request.type in kFeatureKeys)) {
+    if (!(perm.type in kFeatureKeys)) {
         return;
     }
 
@@ -1978,7 +1990,7 @@ ContentPermissionPrompt.prototype = {
       return;
 
     var autoAllow = false;
-    var permissionKey = kFeatureKeys[request.type];
+    var permissionKey = kFeatureKeys[perm.type];
     var result = Services.perms.testExactPermissionFromPrincipal(requestingPrincipal, permissionKey);
 
     if (result == Ci.nsIPermissionManager.DENY_ACTION) {
@@ -1989,14 +2001,14 @@ ContentPermissionPrompt.prototype = {
     if (result == Ci.nsIPermissionManager.ALLOW_ACTION) {
       autoAllow = true;
       // For pointerLock, we still want to show a warning prompt.
-      if (request.type != "pointerLock") {
+      if (perm.type != "pointerLock") {
         request.allow();
         return;
       }
     }
 
     // Show the prompt.
-    switch (request.type) {
+    switch (perm.type) {
     case "geolocation":
       this._promptGeo(request);
       break;

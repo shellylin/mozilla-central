@@ -988,9 +988,13 @@ public:
    * and margin.
    */
   enum IntrinsicWidthType { MIN_WIDTH, PREF_WIDTH };
+  enum {
+    IGNORE_PADDING = 0x01
+  };
   static nscoord IntrinsicForContainer(nsRenderingContext* aRenderingContext,
                                        nsIFrame* aFrame,
-                                       IntrinsicWidthType aType);
+                                       IntrinsicWidthType aType,
+                                       uint32_t aFlags = 0);
 
   /*
    * Convert nsStyleCoord to nscoord when percentages depend on the
@@ -1671,6 +1675,12 @@ public:
    * Checks whether support for the CSS-wide "unset" value is enabled.
    */
   static bool UnsetValueEnabled();
+
+  /**
+   * Checks whether support for the CSS text-align (and -moz-text-align-last)
+   * 'true' value is enabled.
+   */
+  static bool IsTextAlignTrueValueEnabled();
 
   /**
    * Unions the overflow areas of all non-popup children of aFrame with

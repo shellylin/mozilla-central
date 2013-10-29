@@ -1303,6 +1303,11 @@ class MTest
     bool operandMightEmulateUndefined() const {
         return operandMightEmulateUndefined_;
     }
+#ifdef DEBUG
+    bool isConsistentFloat32Use() const {
+        return true;
+    }
+#endif
 };
 
 // Returns from this function to the previous caller.
@@ -2857,8 +2862,6 @@ class MToFloat32
     }
 
     void computeRange();
-    bool truncate();
-    bool isOperandTruncated(size_t index) const;
 
     bool canConsumeFloat32() const { return true; }
     bool canProduceFloat32() const { return true; }
@@ -2921,7 +2924,9 @@ class MAsmJSUnsignedToFloat32
 // Converts a primitive (either typed or untyped) to an int32. If the input is
 // not primitive at runtime, a bailout occurs. If the input cannot be converted
 // to an int32 without loss (i.e. "5.5" or undefined) then a bailout occurs.
-class MToInt32 : public MUnaryInstruction
+class MToInt32
+  : public MUnaryInstruction,
+    public ToInt32Policy
 {
     bool canBeNegativeZero_;
 
@@ -2950,6 +2955,10 @@ class MToInt32 : public MUnaryInstruction
     }
     void setCanBeNegativeZero(bool negativeZero) {
         canBeNegativeZero_ = negativeZero;
+    }
+
+    TypePolicy *typePolicy() {
+        return this;
     }
 
     bool congruentTo(MDefinition *ins) const {
@@ -3739,7 +3748,7 @@ class MMathFunction
     bool isFloat32Commutative() const {
         return function_ == Log || function_ == Sin || function_ == Cos
                || function_ == Exp || function_ == Tan || function_ == ATan
-               || function_ == ASin || function_ == ACos;
+               || function_ == ASin || function_ == ACos || function_ == Floor;
     }
     void trySpecializeFloat32();
 };
@@ -7586,13 +7595,14 @@ class MStringLength
 // Inlined version of Math.floor().
 class MFloor
   : public MUnaryInstruction,
-    public DoublePolicy<0>
+    public FloatingPointPolicy<0>
 {
   public:
     MFloor(MDefinition *num)
       : MUnaryInstruction(num)
     {
         setResultType(MIRType_Int32);
+        setPolicyType(MIRType_Double);
         setMovable();
     }
 
@@ -7607,6 +7617,15 @@ class MFloor
     TypePolicy *typePolicy() {
         return this;
     }
+    bool isFloat32Commutative() const {
+        return true;
+    }
+    void trySpecializeFloat32();
+#ifdef DEBUG
+    bool isConsistentFloat32Use() const {
+        return true;
+    }
+#endif
 };
 
 // Inlined version of Math.round().

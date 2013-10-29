@@ -195,6 +195,7 @@ const UnsolicitedNotifications = {
   "newSource": "newSource",
   "tabDetached": "tabDetached",
   "tabListChanged": "tabListChanged",
+  "reflowActivity": "reflowActivity",
   "addonListChanged": "addonListChanged",
   "tabNavigated": "tabNavigated",
   "pageError": "pageError",
@@ -240,6 +241,7 @@ this.DebuggerClient = function DebuggerClient(aTransport)
   this.compat = new ProtocolCompatibility(this, [
     new SourcesShim(),
   ]);
+  this.traits = {};
 
   this.request = this.request.bind(this);
   this.localTransport = this._transport.onOutputStreamReady === undefined;
@@ -359,11 +361,12 @@ DebuggerClient.prototype = {
    *        received from the debugging server.
    */
   connect: function DC_connect(aOnConnected) {
-    if (aOnConnected) {
-      this.addOneTimeListener("connected", function(aName, aApplicationType, aTraits) {
+    this.addOneTimeListener("connected", (aName, aApplicationType, aTraits) => {
+      this.traits = aTraits;
+      if (aOnConnected) {
         aOnConnected(aApplicationType, aTraits);
-      });
-    }
+      }
+    });
 
     this._transport.ready();
   },
@@ -968,7 +971,7 @@ TabClient.prototype = {
   }, {
     after: function (aResponse) {
       if (this.activeTab === this._client._tabClients[this.actor]) {
-        delete this.activeTab;
+        this.activeTab = undefined;
       }
       delete this._client._tabClients[this.actor];
       return aResponse;
@@ -1120,9 +1123,6 @@ ThreadClient.prototype = {
       // further requests that should only be sent in the paused state.
       this._state = "resuming";
 
-      if (!aPacket.resumeLimit) {
-        delete aPacket.resumeLimit;
-      }
       if (this._pauseOnExceptions) {
         aPacket.pauseOnExceptions = this._pauseOnExceptions;
       }
@@ -1299,7 +1299,7 @@ ThreadClient.prototype = {
   }, {
     after: function (aResponse) {
       if (this.activeThread === this._client._threadClients[this.actor]) {
-        delete this.activeThread;
+        this.activeThread = null;
       }
       delete this._client._threadClients[this.actor];
       return aResponse;

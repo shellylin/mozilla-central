@@ -12,7 +12,6 @@
 #include "mozilla/PodOperations.h"
 #include "mozilla/Util.h"
 
-#include "jsapi.h"
 #include "jsarray.h"
 #include "jsatom.h"
 #include "jscntxt.h"
@@ -1441,7 +1440,7 @@ GeneratorState::~GeneratorState()
 }
 
 StackFrame *
-GeneratorState::pushInterpreterFrame(JSContext *cx, FrameGuard *)
+GeneratorState::pushInterpreterFrame(JSContext *cx)
 {
     /*
      * Write barrier is needed since the generator stack can be updated,

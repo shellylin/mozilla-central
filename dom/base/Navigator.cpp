@@ -656,7 +656,7 @@ VibrateWindowListener::HandleEvent(nsIDOMEvent* aEvent)
     nsCOMPtr<nsIDOMWindow> window = do_QueryReferent(mWindow);
     hal::CancelVibrate(window);
     RemoveListener();
-    gVibrateWindowListener = NULL;
+    gVibrateWindowListener = nullptr;
     // Careful: The line above might have deleted |this|!
   }
 
@@ -1591,7 +1591,7 @@ Navigator::DoNewResolve(JSContext* aCx, JS::Handle<JSObject*> aObject,
     }
   }
 
-  if (!JS_WrapValue(aCx, prop_val.address())) {
+  if (!JS_WrapValue(aCx, &prop_val)) {
     return Throw(aCx, NS_ERROR_UNEXPECTED);
   }
 
