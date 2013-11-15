@@ -16,7 +16,7 @@ const PC_SESSION_CONTRACT = "@mozilla.org/dom/rtcsessiondescription;1";
 const PC_MANAGER_CONTRACT = "@mozilla.org/dom/peerconnectionmanager;1";
 const PC_STATS_CONTRACT = "@mozilla.org/dom/rtcstatsreport;1";
 
-const PC_CID = Components.ID("{fc684a5c-c729-42c7-aa82-3c10dc4398f3}");
+const PC_CID = Components.ID("{00e0e20d-1494-4776-8e0e-0f0acbea3c79}");
 const PC_OBS_CID = Components.ID("{1d44a18e-4545-4ff3-863d-6dbd6234a583}");
 const PC_ICE_CID = Components.ID("{02b9970c-433d-4cc2-923d-f7028ac66073}");
 const PC_SESSION_CID = Components.ID("{1775081b-b62d-4954-8ffe-a067bbf508a7}");
@@ -259,7 +259,9 @@ RTCPeerConnection.prototype = {
     this.makeGetterSetterEH("oniceconnectionstatechange");
 
     this._pc = new this._win.PeerConnectionImpl();
-    this._observer = new this._win.PeerConnectionObserver(this);
+
+    this.__DOM_IMPL__._innerObject = this;
+    this._observer = new this._win.PeerConnectionObserver(this.__DOM_IMPL__);
     this._winID = this._win.QueryInterface(Ci.nsIInterfaceRequestor)
                            .getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
 
@@ -488,13 +490,17 @@ RTCPeerConnection.prototype = {
       constraints = {};
     }
     this._mustValidateConstraints(constraints, "createOffer passed invalid constraints");
-    this._onCreateOfferSuccess = onSuccess;
-    this._onCreateOfferFailure = onError;
 
-    this._queueOrRun({ func: this._createOffer, args: [constraints], wait: true });
+    this._queueOrRun({
+      func: this._createOffer,
+      args: [onSuccess, onError, constraints],
+      wait: true
+    });
   },
 
-  _createOffer: function(constraints) {
+  _createOffer: function(onSuccess, onError, constraints) {
+    this._onCreateOfferSuccess = onSuccess;
+    this._onCreateOfferFailure = onError;
     this._getPC().createOffer(constraints);
   },
 
@@ -540,12 +546,6 @@ RTCPeerConnection.prototype = {
   },
 
   setLocalDescription: function(desc, onSuccess, onError) {
-    // TODO -- if we have two setLocalDescriptions in the
-    // queue,this code overwrites the callbacks for the first
-    // one with the callbacks for the second one. See Bug 831759.
-    this._onSetLocalDescriptionSuccess = onSuccess;
-    this._onSetLocalDescriptionFailure = onError;
-
     let type;
     switch (desc.type) {
       case "offer":
@@ -563,23 +563,19 @@ RTCPeerConnection.prototype = {
 
     this._queueOrRun({
       func: this._setLocalDescription,
-      args: [type, desc.sdp],
+      args: [type, desc.sdp, onSuccess, onError],
       wait: true,
       type: desc.type
     });
   },
 
-  _setLocalDescription: function(type, sdp) {
+  _setLocalDescription: function(type, sdp, onSuccess, onError) {
+    this._onSetLocalDescriptionSuccess = onSuccess;
+    this._onSetLocalDescriptionFailure = onError;
     this._getPC().setLocalDescription(type, sdp);
   },
 
   setRemoteDescription: function(desc, onSuccess, onError) {
-    // TODO -- if we have two setRemoteDescriptions in the
-    // queue, this code overwrites the callbacks for the first
-    // one with the callbacks for the second one. See Bug 831759.
-    this._onSetRemoteDescriptionSuccess = onSuccess;
-    this._onSetRemoteDescriptionFailure = onError;
-
     let type;
     switch (desc.type) {
       case "offer":
@@ -597,13 +593,15 @@ RTCPeerConnection.prototype = {
 
     this._queueOrRun({
       func: this._setRemoteDescription,
-      args: [type, desc.sdp],
+      args: [type, desc.sdp, onSuccess, onError],
       wait: true,
       type: desc.type
     });
   },
 
-  _setRemoteDescription: function(type, sdp) {
+  _setRemoteDescription: function(type, sdp, onSuccess, onError) {
+    this._onSetRemoteDescriptionSuccess = onSuccess;
+    this._onSetRemoteDescriptionFailure = onError;
     this._getPC().setRemoteDescription(type, sdp);
   },
 
@@ -719,18 +717,26 @@ RTCPeerConnection.prototype = {
   },
 
   getStats: function(selector, onSuccess, onError) {
-    this._onGetStatsSuccess = onSuccess;
-    this._onGetStatsFailure = onError;
-
     this._queueOrRun({
       func: this._getStats,
-      args: [selector],
+      args: [selector, onSuccess, onError, false],
       wait: true
     });
   },
 
-  _getStats: function(selector) {
-    this._getPC().getStats(selector);
+  getStatsInternal: function(selector, onSuccess, onError) {
+    this._queueOrRun({
+      func: this._getStats,
+      args: [selector, onSuccess, onError, true],
+      wait: true
+    });
+  },
+
+  _getStats: function(selector, onSuccess, onError, internal) {
+    this._onGetStatsSuccess = onSuccess;
+    this._onGetStatsFailure = onError;
+
+    this._getPC().getStats(selector, internal);
   },
 
   createDataChannel: function(label, dict) {
@@ -837,7 +843,7 @@ PeerConnectionObserver.prototype = {
   init: function(win) { this._win = win; },
 
   __init: function(dompc) {
-    this._dompc = dompc;
+    this._dompc = dompc._innerObject;
   },
 
   dispatchEvent: function(event) {
@@ -1022,7 +1028,7 @@ PeerConnectionObserver.prototype = {
         // waiting for ICE gathering and executeNext frees it
         this._dompc._executeNext();
       }
-      else if (this.localDescription) {
+      else if (this._dompc.localDescription) {
         // If we are trickling but we have already done setLocal,
         // then we need to send a final foundIceCandidate(null) to indicate
         // that we are done gathering.
@@ -1077,6 +1083,7 @@ PeerConnectionObserver.prototype = {
     appendStats(dict.mediaStreamStats, report);
     appendStats(dict.transportStats, report);
     appendStats(dict.iceComponentStats, report);
+    appendStats(dict.iceCandidatePairStats, report);
     appendStats(dict.iceCandidateStats, report);
     appendStats(dict.codecStats, report);
 

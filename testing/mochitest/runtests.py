@@ -342,6 +342,8 @@ class MochitestUtilsMixin(object):
         self.urlOpts.append("failureFile=%s" % self.getFullPath(options.failureFile))
       if options.runSlower:
         self.urlOpts.append("runSlower=true")
+      if options.debugOnFailure:
+        self.urlOpts.append("debugOnFailure=true")
 
   def buildTestPath(self, options):
     """ Build the url path to the specific test harness and test file or directory
@@ -360,7 +362,10 @@ class MochitestUtilsMixin(object):
         if options.testPath and not tp.startswith(options.testPath):
           continue
 
-        paths.append({'path': tp})
+        testob = {'path': tp}
+        if test.has_key('disabled'):
+          testob['disabled'] = test['disabled']
+        paths.append(testob)
 
       # Bug 883865 - add this functionality into manifestDestiny
       with open('tests.json', 'w') as manifestFile:
@@ -570,6 +575,7 @@ class Mochitest(MochitestUtilsMixin):
     """ create the profile and add optional chrome bits and files if requested """
     if options.browserChrome and options.timeout:
       options.extraPrefs.append("testing.browserTestHarness.timeout=%d" % options.timeout)
+    options.extraPrefs.append("browser.tabs.remote=%s" % ('true' if options.e10s else 'false'))
 
     # get extensions to install
     extensions = self.getExtensionsToInstall(options)
@@ -841,8 +847,14 @@ class Mochitest(MochitestUtilsMixin):
                                        dump_screen_on_timeout=not debuggerInfo,
       )
 
+    def timeoutHandler():
+      browserProcessId = outputHandler.browserProcessId
+      self.handleTimeout(timeout, proc, utilityPath, debuggerInfo, browserProcessId)
+    kp_kwargs = {'kill_on_timeout': False,
+                 'onTimeout': [timeoutHandler]}
     # if the output handler is a pipe, it will process output via the subprocess
-    kp_kwargs = {} if outputHandler.pipe else {'processOutputLine': [outputHandler]}
+    if not outputHandler.pipe:
+      kp_kwargs['processOutputLine'] = [outputHandler]
 
     # create mozrunner instance and start the system under test process
     self.lastTestSeen = self.test_name
@@ -898,11 +910,6 @@ class Mochitest(MochitestUtilsMixin):
 
     # finalize output handler
     outputHandler.finish(didTimeout)
-
-    # handle timeout
-    if didTimeout:
-      browserProcessId = outputHandler.browserProcessId
-      self.handleTimeout(timeout, proc, utilityPath, debuggerInfo, browserProcessId)
 
     # record post-test information
     if status:

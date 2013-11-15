@@ -1845,7 +1845,7 @@ struct MOZ_STACK_CLASS ExceptionArgParser
     }
 
     bool parseResult(HandleValue v) {
-        return JS_ValueToECMAUint32(cx, v, (uint32_t*) &eResult);
+        return JS::ToUint32(cx, v, (uint32_t*) &eResult);
     }
 
     bool parseStack(HandleValue v) {
@@ -3025,6 +3025,7 @@ xpc::CreateObjectIn(JSContext *cx, HandleValue vobj, CreateObjectInOptions &opti
         JS_ReportError(cx, "Permission denied to create object in the target scope");
         return false;
     }
+
     RootedObject obj(cx);
     {
         JSAutoCompartment ac(cx, scope);
@@ -3034,23 +3035,64 @@ xpc::CreateObjectIn(JSContext *cx, HandleValue vobj, CreateObjectInOptions &opti
 
         if (!JSID_IS_VOID(options.defineAs) &&
             !JS_DefinePropertyById(cx, scope, options.defineAs, ObjectValue(*obj),
-                                       JS_PropertyStub, JS_StrictPropertyStub,
-                                       JSPROP_ENUMERATE))
+                                   JS_PropertyStub, JS_StrictPropertyStub,
+                                   JSPROP_ENUMERATE))
             return false;
     }
 
-    if (!JS_WrapObject(cx, &obj))
+    rval.setObject(*obj);
+    if (!WrapperFactory::WaiveXrayAndWrap(cx, rval))
         return false;
 
-    rval.setObject(*obj);
     return true;
 }
 
-/* jsval createObjectIn(in jsval vobj); */
+/* jsval evalInWindow(in string source, in jsval window); */
 NS_IMETHODIMP
-nsXPCComponents_Utils::CreateObjectIn(const Value &vobj, JSContext *cx, Value *rval)
+nsXPCComponents_Utils::EvalInWindow(const nsAString &source, const Value &window,
+                                    JSContext *cx, Value *rval)
 {
-    CreateObjectInOptions options;
+    if (!window.isObject())
+        return NS_ERROR_INVALID_ARG;
+
+    RootedObject rwindow(cx, &window.toObject());
+    RootedValue res(cx);
+    if (!xpc::EvalInWindow(cx, source, rwindow, &res))
+        return NS_ERROR_FAILURE;
+
+    *rval = res;
+    return NS_OK;
+}
+
+/* jsval exportFunction(in jsval vfunction, in jsval vscope, in jsval vname); */
+NS_IMETHODIMP
+nsXPCComponents_Utils::ExportFunction(const Value &vfunction, const Value &vscope,
+                                      const Value &vname, JSContext *cx, Value *rval)
+{
+    RootedValue rfunction(cx, vfunction);
+    RootedValue rscope(cx, vscope);
+    RootedValue rname(cx, vname);
+    RootedValue res(cx);
+    if (!xpc::ExportFunction(cx, rfunction, rscope, rname, &res))
+        return NS_ERROR_FAILURE;
+    *rval = res;
+    return NS_OK;
+}
+
+/* jsval createObjectIn(in jsval vobj, [optional] in jsval voptions); */
+NS_IMETHODIMP
+nsXPCComponents_Utils::CreateObjectIn(const Value &vobj, const Value &voptions,
+                                      JSContext *cx, Value *rval)
+{
+    RootedObject optionsObject(cx, voptions.isObject() ? &voptions.toObject()
+                                                       : nullptr);
+    CreateObjectInOptions options(cx, optionsObject);
+    if (voptions.isObject() &&
+        !options.Parse())
+    {
+        return NS_ERROR_FAILURE;
+    }
+
     RootedValue rvobj(cx, vobj);
     RootedValue res(cx);
     if (!xpc::CreateObjectIn(cx, rvobj, options, &res))
@@ -3329,6 +3371,38 @@ nsXPCComponents_Utils::NukeSandbox(const Value &obj, JSContext *cx)
     NukeCrossCompartmentWrappers(cx, AllCompartments(),
                                  SingleCompartment(GetObjectCompartment(sb)),
                                  NukeWindowReferences);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXPCComponents_Utils::BlockScriptForGlobal(const JS::Value &globalArg,
+                                            JSContext *cx)
+{
+    NS_ENSURE_TRUE(globalArg.isObject(), NS_ERROR_INVALID_ARG);
+    JSObject *global = UncheckedUnwrap(&globalArg.toObject(),
+                                       /* stopAtOuter = */ false);
+    NS_ENSURE_TRUE(JS_IsGlobalObject(global), NS_ERROR_INVALID_ARG);
+    if (nsContentUtils::IsSystemPrincipal(GetObjectPrincipal(global))) {
+        JS_ReportError(cx, "Script may not be disabled for system globals");
+        return NS_ERROR_FAILURE;
+    }
+    Scriptability::Get(global).Block();
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXPCComponents_Utils::UnblockScriptForGlobal(const JS::Value &globalArg,
+                                              JSContext *cx)
+{
+    NS_ENSURE_TRUE(globalArg.isObject(), NS_ERROR_INVALID_ARG);
+    JSObject *global = UncheckedUnwrap(&globalArg.toObject(),
+                                       /* stopAtOuter = */ false);
+    NS_ENSURE_TRUE(JS_IsGlobalObject(global), NS_ERROR_INVALID_ARG);
+    if (nsContentUtils::IsSystemPrincipal(GetObjectPrincipal(global))) {
+        JS_ReportError(cx, "Script may not be disabled for system globals");
+        return NS_ERROR_FAILURE;
+    }
+    Scriptability::Get(global).Unblock();
     return NS_OK;
 }
 
@@ -3687,8 +3761,9 @@ nsXPCComponents::SetProperty(nsIXPConnectWrappedNative *wrapper,
         return NS_ERROR_FAILURE;
 
     if (id == rt->GetStringID(XPCJSRuntime::IDX_RETURN_CODE)) {
+        RootedValue v(cx, *vp);
         nsresult rv;
-        if (JS_ValueToECMAUint32(cx, *vp, (uint32_t*)&rv)) {
+        if (ToUint32(cx, v, (uint32_t*)&rv)) {
             xpcc->SetPendingResult(rv);
             xpcc->SetLastResult(rv);
             return NS_SUCCESS_I_DID_SOMETHING;

@@ -2039,8 +2039,7 @@ public:
    * Returns the offset from this frame to the closest geometric parent that
    * has a view. Also returns the containing view or null in case of error
    */
-  NS_IMETHOD  GetOffsetFromView(nsPoint&  aOffset,
-                                nsView** aView) const = 0;
+  void GetOffsetFromView(nsPoint& aOffset, nsView** aView) const;
 
   /**
    * Returns the nearest widget containing this frame. If this frame has a
@@ -2175,30 +2174,6 @@ public:
    */
   bool IsFlexItem() const
   { return mParent && mParent->GetType() == nsGkAtoms::flexContainerFrame; }
-
-  /**
-   * Mark this frame as using active layers. This marking will time out
-   * after a short period. This call does no immediate invalidation,
-   * but when the mark times out, we'll invalidate the frame's overflow
-   * area.
-   * @param aChangeHint nsChangeHint_UpdateTransformLayer or
-   * nsChangeHint_UpdateOpacityLayer or 0, depending on whether the change
-   * triggering the activity is a changing transform, changing opacity, or
-   * something else.
-   */
-  void MarkLayersActive(nsChangeHint aHint);
-  /**
-   * Return true if this frame is marked as needing active layers.
-   */
-  bool AreLayersMarkedActive();
-  /**
-   * Return true if this frame is marked as needing active layers.
-   * @param aChangeHint nsChangeHint_UpdateTransformLayer or
-   * nsChangeHint_UpdateOpacityLayer. We return true only if
-   * a change in the transform or opacity has been recorded while layers have
-   * been marked active for this frame.
-   */
-  bool AreLayersMarkedActive(nsChangeHint aChangeHint);
 
   /**
    * Marks all display items created by this frame as needing a repaint,

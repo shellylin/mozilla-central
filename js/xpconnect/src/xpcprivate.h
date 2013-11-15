@@ -1172,6 +1172,7 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* deleteProperty */                                         \
         nullptr, /* deleteElement */                                          \
         nullptr, /* deleteSpecial */                                          \
+        nullptr, nullptr, /* watch/unwatch */                                 \
         XPC_WN_JSOp_Enumerate,                                                \
         XPC_WN_JSOp_ThisObject,                                               \
     }
@@ -1200,6 +1201,7 @@ XPC_WN_JSOp_ThisObject(JSContext *cx, JS::HandleObject obj);
         nullptr, /* deleteProperty */                                         \
         nullptr, /* deleteElement */                                          \
         nullptr, /* deleteSpecial */                                          \
+        nullptr, nullptr, /* watch/unwatch */                                 \
         XPC_WN_JSOp_Enumerate,                                                \
         XPC_WN_JSOp_ThisObject,                                               \
     }
@@ -1369,6 +1371,7 @@ public:
 
     bool IsXBLScope() { return mIsXBLScope; }
     bool AllowXBLScope();
+    bool UseXBLScope() { return mUseXBLScope; }
 
 protected:
     virtual ~XPCWrappedNativeScope();
@@ -3619,7 +3622,7 @@ IsSandbox(JSObject *obj);
 class MOZ_STACK_CLASS OptionsBase {
 public:
     OptionsBase(JSContext *cx = xpc_GetSafeJSContext(),
-                JS::HandleObject options = JS::NullPtr())
+                JSObject *options = nullptr)
         : mCx(cx)
         , mObject(cx, options)
     { }
@@ -3631,6 +3634,7 @@ protected:
     bool ParseBoolean(const char *name, bool *prop);
     bool ParseObject(const char *name, JS::MutableHandleObject prop);
     bool ParseString(const char *name, nsCString &prop);
+    bool ParseString(const char *name, nsString &prop);
     bool ParseId(const char* name, JS::MutableHandleId id);
 
     JSContext *mCx;
@@ -3640,7 +3644,7 @@ protected:
 class MOZ_STACK_CLASS SandboxOptions : public OptionsBase {
 public:
     SandboxOptions(JSContext *cx = xpc_GetSafeJSContext(),
-                   JS::HandleObject options = JS::NullPtr())
+                   JSObject *options = nullptr)
         : OptionsBase(cx, options)
         , wantXrays(true)
         , wantComponents(true)
@@ -3668,7 +3672,7 @@ protected:
 class MOZ_STACK_CLASS CreateObjectInOptions : public OptionsBase {
 public:
     CreateObjectInOptions(JSContext *cx = xpc_GetSafeJSContext(),
-                          JS::HandleObject options = JS::NullPtr())
+                          JSObject* options = nullptr)
         : OptionsBase(cx, options)
         , defineAs(cx, JSID_VOID)
     { }
@@ -3724,6 +3728,14 @@ bool
 CreateObjectIn(JSContext *cx, JS::HandleValue vobj, CreateObjectInOptions &options,
                JS::MutableHandleValue rval);
 
+bool
+EvalInWindow(JSContext *cx, const nsAString &source, JS::HandleObject scope,
+             JS::MutableHandleValue rval);
+
+bool
+ExportFunction(JSContext *cx, JS::HandleValue vscope, JS::HandleValue vfunction,
+               JS::HandleValue vname, JS::MutableHandleValue rval);
+
 } /* namespace xpc */
 
 
@@ -3741,13 +3753,18 @@ namespace xpc {
 class CompartmentPrivate
 {
 public:
-    CompartmentPrivate()
+    enum LocationHint {
+        LocationHintRegular,
+        LocationHintAddon
+    };
+
+    CompartmentPrivate(JSCompartment *c)
         : wantXrays(false)
         , universalXPConnectEnabled(false)
         , adoptedNode(false)
         , donatedNode(false)
+        , scriptability(c)
         , scope(nullptr)
-        , locationWasParsed(false)
     {
         MOZ_COUNT_CTOR(xpc::CompartmentPrivate);
     }
@@ -3766,6 +3783,9 @@ public:
     bool adoptedNode;
     bool donatedNode;
 
+    // The scriptability of this compartment.
+    Scriptability scriptability;
+
     // Our XPCWrappedNativeScope. This is non-null if and only if this is an
     // XPConnect compartment.
     XPCWrappedNativeScope *scope;
@@ -3778,10 +3798,14 @@ public:
         return location;
     }
     bool GetLocationURI(nsIURI **aURI) {
-        if (!locationURI && !TryParseLocationURI())
-            return false;
-        NS_IF_ADDREF(*aURI = locationURI);
-        return true;
+        return GetLocationURI(LocationHintRegular, aURI);
+    }
+    bool GetLocationURI(LocationHint aLocationHint, nsIURI **aURI) {
+        if (locationURI) {
+            NS_IF_ADDREF(*aURI = locationURI);
+            return true;
+        }
+        return TryParseLocationURI(aLocationHint, aURI);
     }
     void SetLocation(const nsACString& aLocation) {
         if (aLocation.IsEmpty())
@@ -3801,10 +3825,8 @@ public:
 private:
     nsCString location;
     nsCOMPtr<nsIURI> locationURI;
-    bool locationWasParsed;
 
-    bool TryParseLocationURI();
-    bool TryParseLocationURICandidate(const nsACString& uristr);
+    bool TryParseLocationURI(LocationHint aType, nsIURI** aURI);
 };
 
 CompartmentPrivate*

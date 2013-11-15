@@ -337,7 +337,7 @@ namespace dom {
 AsyncErrorReporter::AsyncErrorReporter(JSRuntime* aRuntime,
                                        JSErrorReport* aErrorReport,
                                        const char* aFallbackMessage,
-                                       nsIPrincipal* aGlobalPrincipal,
+                                       bool aIsChromeError,
                                        nsPIDOMWindow* aWindow)
   : mSourceLine(static_cast<const PRUnichar*>(aErrorReport->uclinebuf))
   , mLineNumber(aErrorReport->lineno)
@@ -365,9 +365,8 @@ AsyncErrorReporter::AsyncErrorReporter(JSRuntime* aRuntime,
     mErrorMsg.AssignWithConversion(aFallbackMessage);
   }
 
-  mCategory = nsContentUtils::IsSystemPrincipal(aGlobalPrincipal) ?
-    NS_LITERAL_CSTRING("chrome javascript") :
-    NS_LITERAL_CSTRING("content javascript");
+  mCategory = aIsChromeError ? NS_LITERAL_CSTRING("chrome javascript") :
+                               NS_LITERAL_CSTRING("content javascript");
 
   mInnerWindowID = 0;
   if (aWindow && aWindow->IsOuterWindow()) {
@@ -421,7 +420,8 @@ public:
                    bool aDispatchEvent)
     // Pass an empty category, then compute ours
     : AsyncErrorReporter(aRuntime, aErrorReport, aFallbackMessage,
-                         aGlobalPrincipal, aWindow)
+                         nsContentUtils::IsSystemPrincipal(aGlobalPrincipal),
+                         aWindow)
     , mScriptGlobal(aScriptGlobal)
     , mOriginPrincipal(aScriptOriginPrincipal)
     , mDispatchEvent(aDispatchEvent)
@@ -509,7 +509,7 @@ NS_ScriptErrorReporter(JSContext *cx,
   // absence of werror are swallowed whole, so report those now.
   if (!JSREPORT_IS_WARNING(report->flags)) {
     nsIXPConnect* xpc = nsContentUtils::XPConnect();
-    JS::RootedScript script(cx);
+    JS::Rooted<JSScript*> script(cx);
     if (JS_DescribeScriptedCaller(cx, &script, nullptr)) {
       xpc->MarkErrorUnreported(cx);
       return;
@@ -839,7 +839,6 @@ nsJSContext::nsJSContext(bool aGCOnDestruction,
                                   js_options_dot_str, this);
   }
   mIsInitialized = false;
-  mScriptsEnabled = true;
   mProcessingScriptTag = false;
   HoldJSObjects(this);
 }
@@ -950,10 +949,6 @@ nsJSContext::EvaluateString(const nsAString& aScript,
                             void **aOffThreadToken)
 {
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
-  if (!mScriptsEnabled) {
-    return NS_OK;
-  }
-
   AutoCxPusher pusher(mContext);
   nsJSUtils::EvaluateOptions evalOptions;
   evalOptions.setCoerceToString(aCoerceToString);
@@ -1862,27 +1857,6 @@ nsJSContext::IsContextInitialized()
 {
   return mIsInitialized;
 }
-
-bool
-nsJSContext::GetScriptsEnabled()
-{
-  return mScriptsEnabled;
-}
-
-void
-nsJSContext::SetScriptsEnabled(bool aEnabled, bool aFireTimeouts)
-{
-  // eeek - this seems the wrong way around - the global should callback
-  // into each context, so every language is disabled.
-  mScriptsEnabled = aEnabled;
-
-  nsIScriptGlobalObject *global = GetGlobalObject();
-
-  if (global) {
-    global->SetScriptsEnabled(aEnabled, aFireTimeouts);
-  }
-}
-
 
 bool
 nsJSContext::GetProcessingScriptTag()

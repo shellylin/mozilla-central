@@ -657,13 +657,13 @@ LIRGenerator::visitTest(MTest *test)
 
     // Constant Double operand.
     if (opd->type() == MIRType_Double && opd->isConstant()) {
-        bool result = ToBoolean(opd->toConstant()->value());
+        bool result = opd->toConstant()->valueToBoolean();
         return add(new LGoto(result ? ifTrue : ifFalse));
     }
 
     // Constant Float32 operand.
     if (opd->type() == MIRType_Float32 && opd->isConstant()) {
-        bool result = ToBoolean(opd->toConstant()->value());
+        bool result = opd->toConstant()->valueToBoolean();
         return add(new LGoto(result ? ifTrue : ifFalse));
     }
 
@@ -1218,6 +1218,19 @@ LIRGenerator::visitAtan2(MAtan2 *ins)
     JS_ASSERT(x->type() == MIRType_Double);
 
     LAtan2D *lir = new LAtan2D(useRegisterAtStart(y), useRegisterAtStart(x), tempFixed(CallTempReg0));
+    return defineReturn(lir, ins);
+}
+
+bool
+LIRGenerator::visitHypot(MHypot *ins)
+{
+    MDefinition *x = ins->x();
+    JS_ASSERT(x->type() == MIRType_Double);
+
+    MDefinition *y = ins->y();
+    JS_ASSERT(y->type() == MIRType_Double);
+
+    LHypot *lir = new LHypot(useRegisterAtStart(x), useRegisterAtStart(y), tempFixed(CallTempReg0));
     return defineReturn(lir, ins);
 }
 
@@ -2525,6 +2538,18 @@ LIRGenerator::visitArrayConcat(MArrayConcat *ins)
 }
 
 bool
+LIRGenerator::visitStringSplit(MStringSplit *ins)
+{
+    JS_ASSERT(ins->type() == MIRType_Object);
+    JS_ASSERT(ins->string()->type() == MIRType_String);
+    JS_ASSERT(ins->separator()->type() == MIRType_String);
+
+    LStringSplit *lir = new LStringSplit(useRegisterAtStart(ins->string()),
+                                         useRegisterAtStart(ins->separator()));
+    return defineReturn(lir, ins) && assignSafepoint(lir, ins);
+}
+
+bool
 LIRGenerator::visitLoadTypedArrayElement(MLoadTypedArrayElement *ins)
 {
     JS_ASSERT(ins->elements()->type() == MIRType_Elements);
@@ -2803,6 +2828,13 @@ LIRGenerator::visitBindNameCache(MBindNameCache *ins)
 
     LBindNameCache *lir = new LBindNameCache(useRegister(ins->scopeChain()));
     return define(lir, ins) && assignSafepoint(lir, ins);
+}
+
+bool
+LIRGenerator::visitGuardObjectIdentity(MGuardObjectIdentity *ins)
+{
+    LGuardObjectIdentity *guard = new LGuardObjectIdentity(useRegister(ins->obj()));
+    return assignSnapshot(guard) && add(guard, ins) && redefine(ins, ins->obj());
 }
 
 bool

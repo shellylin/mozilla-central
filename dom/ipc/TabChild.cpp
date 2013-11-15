@@ -62,6 +62,7 @@
 #include "nsPrintfCString.h"
 #include "nsThreadUtils.h"
 #include "nsWeakReference.h"
+#include "PermissionMessageUtils.h"
 #include "PCOMContentPermissionRequestChild.h"
 #include "PuppetWidget.h"
 #include "StructuredCloneUtils.h"
@@ -69,6 +70,11 @@
 #include "JavaScriptChild.h"
 #include "APZCCallbackHelper.h"
 #include "nsILoadContext.h"
+#include "ipc/nsGUIEventIPC.h"
+
+#ifdef DEBUG
+#include "PCOMContentPermissionRequestChild.h"
+#endif /* DEBUG */
 
 #define BROWSER_ELEMENT_CHILD_SCRIPT \
     NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
@@ -88,10 +94,8 @@ NS_IMPL_ISUPPORTS1(ContentListener, nsIDOMEventListener)
 
 static const CSSSize kDefaultViewportSize(980, 480);
 
-static const char CANCEL_DEFAULT_PAN_ZOOM[] = "cancel-default-pan-zoom";
 static const char BROWSER_ZOOM_TO_RECT[] = "browser-zoom-to-rect";
 static const char BEFORE_FIRST_PAINT[] = "before-first-paint";
-static const char DETECT_SCROLLABLE_SUBFRAME[] = "detect-scrollable-subframe";
 
 static bool sCpowsEnabled = false;
 
@@ -354,13 +358,7 @@ TabChild::Observe(nsISupports *aSubject,
                   const char *aTopic,
                   const PRUnichar *aData)
 {
-  if (!strcmp(aTopic, CANCEL_DEFAULT_PAN_ZOOM)) {
-    nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aSubject));
-    nsCOMPtr<nsITabChild> tabChild(TabChild::GetFrom(docShell));
-    if (tabChild == this) {
-      mRemoteFrame->CancelDefaultPanZoom();
-    }
-  } else if (!strcmp(aTopic, BROWSER_ZOOM_TO_RECT)) {
+  if (!strcmp(aTopic, BROWSER_ZOOM_TO_RECT)) {
     nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aSubject));
     nsCOMPtr<nsITabChild> tabChild(TabChild::GetFrom(docShell));
     if (tabChild == this) {
@@ -408,12 +406,6 @@ TabChild::Observe(nsISupports *aSubject,
 
         HandlePossibleViewportChange();
       }
-    }
-  } else if (!strcmp(aTopic, DETECT_SCROLLABLE_SUBFRAME)) {
-    nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aSubject));
-    nsCOMPtr<nsITabChild> tabChild(TabChild::GetFrom(docShell));
-    if (tabChild == this) {
-      mRemoteFrame->DetectScrollableSubframe();
     }
   }
 
@@ -1154,6 +1146,20 @@ TabChild::ArraysToParams(const InfallibleTArray<int>& aIntParams,
   }
 }
 
+#ifdef DEBUG
+PContentPermissionRequestChild*
+TabChild:: SendPContentPermissionRequestConstructor(PContentPermissionRequestChild* aActor,
+                                                    const nsCString& aType,
+                                                    const nsCString& aAccess,
+                                                    const IPC::Principal& aPrincipal)
+{
+  PCOMContentPermissionRequestChild* child = static_cast<PCOMContentPermissionRequestChild*>(aActor);
+  PContentPermissionRequestChild* request = PBrowserChild::SendPContentPermissionRequestConstructor(aActor, aType, aAccess, aPrincipal);
+  child->mIPCOpen = true;
+  return request;
+}
+#endif /* DEBUG */
+
 void
 TabChild::DestroyWindow()
 {
@@ -1501,7 +1507,7 @@ TabChild::DispatchMessageManagerMessage(const nsAString& aMessageName,
     nsRefPtr<nsFrameMessageManager> mm =
       static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get());
     mm->ReceiveMessage(static_cast<EventTarget*>(mTabChildGlobal),
-                       aMessageName, false, &cloneData, nullptr, nullptr);
+                       aMessageName, false, &cloneData, nullptr, nullptr, nullptr);
 }
 
 bool
@@ -2003,8 +2009,7 @@ TabChild::DeallocPContentDialogChild(PContentDialogChild* aDialog)
 }
 
 PContentPermissionRequestChild*
-TabChild::AllocPContentPermissionRequestChild(const InfallibleTArray<PermissionRequest>& aRequests,
-                                              const IPC::Principal& aPrincipal)
+TabChild::AllocPContentPermissionRequestChild(const nsCString& aType, const nsCString& aAccess, const IPC::Principal&)
 {
   NS_RUNTIMEABORT("unused");
   return nullptr;
@@ -2067,7 +2072,8 @@ TabChild::RecvLoadRemoteScript(const nsString& aURL)
 bool
 TabChild::RecvAsyncMessage(const nsString& aMessage,
                            const ClonedMessageData& aData,
-                           const InfallibleTArray<CpowEntry>& aCpows)
+                           const InfallibleTArray<CpowEntry>& aCpows,
+                           const IPC::Principal& aPrincipal)
 {
   if (mTabChildGlobal) {
     nsCOMPtr<nsIXPConnectJSObjectHolder> kungFuDeathGrip(GetGlobal());
@@ -2076,7 +2082,7 @@ TabChild::RecvAsyncMessage(const nsString& aMessage,
       static_cast<nsFrameMessageManager*>(mTabChildGlobal->mMessageManager.get());
     CpowIdHolder cpows(static_cast<ContentChild*>(Manager())->GetCPOWManager(), aCpows);
     mm->ReceiveMessage(static_cast<EventTarget*>(mTabChildGlobal),
-                       aMessage, false, &cloneData, &cpows, nullptr);
+                       aMessage, false, &cloneData, &cpows, aPrincipal, nullptr);
   }
   return true;
 }
@@ -2120,10 +2126,8 @@ TabChild::RecvDestroy()
   nsCOMPtr<nsIObserverService> observerService =
     mozilla::services::GetObserverService();
 
-  observerService->RemoveObserver(this, CANCEL_DEFAULT_PAN_ZOOM);
   observerService->RemoveObserver(this, BROWSER_ZOOM_TO_RECT);
   observerService->RemoveObserver(this, BEFORE_FIRST_PAINT);
-  observerService->RemoveObserver(this, DETECT_SCROLLABLE_SUBFRAME);
 
   const InfallibleTArray<PIndexedDBChild*>& idbActors =
     ManagedPIndexedDBChild();
@@ -2259,16 +2263,10 @@ TabChild::InitRenderingState()
 
     if (observerService) {
         observerService->AddObserver(this,
-                                     CANCEL_DEFAULT_PAN_ZOOM,
-                                     false);
-        observerService->AddObserver(this,
                                      BROWSER_ZOOM_TO_RECT,
                                      false);
         observerService->AddObserver(this,
                                      BEFORE_FIRST_PAINT,
-                                     false);
-        observerService->AddObserver(this,
-                                     DETECT_SCROLLABLE_SUBFRAME,
                                      false);
     }
 
@@ -2381,6 +2379,12 @@ TabChild::GetMessageManager(nsIContentFrameMessageManager** aResult)
   return NS_ERROR_FAILURE;
 }
 
+void
+TabChild::SendRequestFocus(bool aCanFocus)
+{
+  PBrowserChild::SendRequestFocus(aCanFocus);
+}
+
 PIndexedDBChild*
 TabChild::AllocPIndexedDBChild(
                             const nsCString& aGroup,
@@ -2402,6 +2406,7 @@ TabChild::DoSendBlockingMessage(JSContext* aCx,
                                 const nsAString& aMessage,
                                 const StructuredCloneData& aData,
                                 JS::Handle<JSObject *> aCpows,
+                                nsIPrincipal* aPrincipal,
                                 InfallibleTArray<nsString>* aJSONRetVal,
                                 bool aIsSync)
 {
@@ -2416,16 +2421,21 @@ TabChild::DoSendBlockingMessage(JSContext* aCx,
       return false;
     }
   }
-  if (aIsSync)
-    return SendSyncMessage(nsString(aMessage), data, cpows, aJSONRetVal);
-  return CallRpcMessage(nsString(aMessage), data, cpows, aJSONRetVal);
+  if (aIsSync) {
+    return SendSyncMessage(nsString(aMessage), data, cpows, aPrincipal,
+                           aJSONRetVal);
+  }
+
+  return CallRpcMessage(nsString(aMessage), data, cpows, aPrincipal,
+                        aJSONRetVal);
 }
 
 bool
 TabChild::DoSendAsyncMessage(JSContext* aCx,
                              const nsAString& aMessage,
                              const StructuredCloneData& aData,
-                             JS::Handle<JSObject *> aCpows)
+                             JS::Handle<JSObject *> aCpows,
+                             nsIPrincipal* aPrincipal)
 {
   ContentChild* cc = Manager();
   ClonedMessageData data;
@@ -2438,7 +2448,8 @@ TabChild::DoSendAsyncMessage(JSContext* aCx,
       return false;
     }
   }
-  return SendAsyncMessage(nsString(aMessage), data, cpows);
+  return SendAsyncMessage(nsString(aMessage), data, cpows,
+                          aPrincipal);
 }
 
 TabChild*

@@ -61,9 +61,19 @@
   color: hsl(208,56%,40%);
 }
 
+/*
+ * FIXME: http://bugzil.la/575675 CSS links without :visited set cause assertion
+ * failures in debug builds.
+ */
+.theme-link:visited,
+.cm-s-mozilla .cm-link:visited { /* blue */
+  color: hsl(208,56%,40%);
+}
+
 .theme-comment,
 .cm-s-mozilla .cm-meta,
-.cm-s-mozilla .cm-hr { /* grey */
+.cm-s-mozilla .cm-hr,
+.cm-s-mozilla .cm-comment { /* grey */
   color: hsl(90,2%,46%);
 }
 
@@ -78,49 +88,45 @@
 }
 
 .theme-fg-color1,
-.cm-s-mozilla .cm-variable-2,
-.cm-s-mozilla .cm-quote,
-.cm-s-mozilla .CodeMirror-matchingbracket { /* green */
+.cm-s-mozilla .cm-number { /* green */
   color: hsl(72,100%,27%);
 }
 
 .theme-fg-color2,
 .cm-s-mozilla .cm-attribute,
 .cm-s-mozilla .cm-builtin,
-.cm-s-mozilla .cm-variable,
 .cm-s-mozilla .cm-def,
-.cm-s-mozilla .cm-variable-3,
 .cm-s-mozilla .cm-property,
 .cm-s-mozilla .cm-qualifier { /* blue */
   color: hsl(208,56%,40%);
 }
 
 .theme-fg-color3,
+.cm-s-mozilla .cm-variable,
 .cm-s-mozilla .cm-tag,
 .cm-s-mozilla .cm-header { /* dark blue */
   color: hsl(208,81%,21%)
 }
 
-.theme-fg-color4,
-.cm-s-mozilla .cm-comment { /* Orange */
+.theme-fg-color4 { /* Orange */
   color: hsl(24,85%,39%);
 }
 
 .theme-fg-color5,
 .cm-s-mozilla .cm-bracket,
-.cm-s-mozilla .cm-keyword,
-.cm-s-mozilla .cm-atom { /* Yellow */
+.cm-s-mozilla .cm-keyword { /* Yellow */
   color: #a18650;
 }
 
 .theme-fg-color6,
-.cm-s-mozilla .cm-string { /* Orange */
+.cm-s-mozilla .cm-string,
+.cm-s-mozilla .cm-string-2 { /* Orange */
   color: hsl(24,85%,39%);
 }
 
 .theme-fg-color7,
-.cm-s-mozilla .CodeMirror-nonmatchingbracket,
-.cm-s-mozilla .cm-string-2,
+.cm-s-mozilla .cm-atom,
+.cm-s-mozilla .cm-quote,
 .cm-s-mozilla .cm-error { /* Red */
   color: #bf5656;
 }
@@ -146,9 +152,10 @@
 }
 
 .CodeMirror pre,
+.cm-s-mozilla .cm-variable-2,
+.cm-s-mozilla .cm-variable-3,
 .cm-s-mozilla .cm-operator,
-.cm-s-mozilla .cm-special,
-.cm-s-mozilla .cm-number { /* theme-body color */
+.cm-s-mozilla .cm-special { /* theme-body color */
   color: black;
 }
 
@@ -164,8 +171,21 @@
   background: rgb(176, 176, 176);
 }
 
-.CodeMirror-activeline-background { /* selected color with alpha */
-  background: rgba(185, 215, 253, .4);
+.cm-s-mozilla .CodeMirror-activeline-background { /* selected color with alpha */
+  background: rgba(185, 215, 253, .35);
+}
+
+div.cm-s-mozilla span.CodeMirror-matchingbracket { /* highlight brackets */
+  outline: solid 1px rgba(0, 0, 0, .25);
+  color: black;
+}
+
+.cm-s-mozilla .CodeMirror-linenumber { /* line number text */
+  color: #667380;
+}
+
+.cm-s-mozilla .CodeMirror-gutters { /* vertical line next to line numbers */
+  border-right-color: #a6a6a6;
 }
 
 .cm-s-markup-view pre {

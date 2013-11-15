@@ -969,6 +969,10 @@ class MConstant : public MNullaryInstruction
     const js::Value *vp() const {
         return &value_;
     }
+    const bool valueToBoolean() const {
+        // A hack to avoid this wordy pattern everywhere in the JIT.
+        return ToBoolean(HandleValue::fromMarkedLocation(&value_));
+    }
 
     void printOpcode(FILE *fp) const;
 
@@ -2146,12 +2150,14 @@ class MCompare
     CompareType compareType_;
     JSOp jsop_;
     bool operandMightEmulateUndefined_;
+    bool operandsAreNeverNaN_;
 
     MCompare(MDefinition *left, MDefinition *right, JSOp jsop)
       : MBinaryInstruction(left, right),
         compareType_(Compare_Unknown),
         jsop_(jsop),
-        operandMightEmulateUndefined_(true)
+        operandMightEmulateUndefined_(true),
+        operandsAreNeverNaN_(false)
     {
         setResultType(MIRType_Boolean);
         setMovable();
@@ -2195,6 +2201,9 @@ class MCompare
     bool operandMightEmulateUndefined() const {
         return operandMightEmulateUndefined_;
     }
+    bool operandsAreNeverNaN() const {
+        return operandsAreNeverNaN_;
+    }
     AliasSet getAliasSet() const {
         // Strict equality is never effectful.
         if (jsop_ == JSOP_STRICTEQ || jsop_ == JSOP_STRICTNE)
@@ -2206,6 +2215,7 @@ class MCompare
     }
 
     void printOpcode(FILE *fp) const;
+    void collectRangeInfo();
 
     void trySpecializeFloat32();
     bool isFloat32Commutative() const { return true; }
@@ -3576,6 +3586,49 @@ class MAtan2
     }
 };
 
+// Inline implementation of Math.hypot().
+class MHypot
+  : public MBinaryInstruction,
+    public MixPolicy<DoublePolicy<0>, DoublePolicy<1> >
+{
+    MHypot(MDefinition *y, MDefinition *x)
+      : MBinaryInstruction(x, y)
+    {
+        setResultType(MIRType_Double);
+        setMovable();
+    }
+
+  public:
+    INSTRUCTION_HEADER(Hypot)
+    static MHypot *New(MDefinition *x, MDefinition *y) {
+        return new MHypot(y, x);
+    }
+
+    MDefinition *x() const {
+        return getOperand(0);
+    }
+
+    MDefinition *y() const {
+        return getOperand(1);
+    }
+
+    TypePolicy *typePolicy() {
+        return this;
+    }
+
+    bool congruentTo(MDefinition *ins) const {
+        return congruentIfOperandsEqual(ins);
+    }
+
+    AliasSet getAliasSet() const {
+        return AliasSet::None();
+    }
+
+    bool possiblyCalls() const {
+        return true;
+    }
+};
+
 // Inline implementation of Math.pow().
 class MPow
   : public MBinaryInstruction,
@@ -3620,8 +3673,15 @@ class MPowHalf
   : public MUnaryInstruction,
     public DoublePolicy<0>
 {
+    bool operandIsNeverNegativeInfinity_;
+    bool operandIsNeverNegativeZero_;
+    bool operandIsNeverNaN_;
+
     MPowHalf(MDefinition *input)
-      : MUnaryInstruction(input)
+      : MUnaryInstruction(input),
+        operandIsNeverNegativeInfinity_(false),
+        operandIsNeverNegativeZero_(false),
+        operandIsNeverNaN_(false)
     {
         setResultType(MIRType_Double);
         setMovable();
@@ -3635,12 +3695,22 @@ class MPowHalf
     bool congruentTo(MDefinition *ins) const {
         return congruentIfOperandsEqual(ins);
     }
+    bool operandIsNeverNegativeInfinity() const {
+        return operandIsNeverNegativeInfinity_;
+    }
+    bool operandIsNeverNegativeZero() const {
+        return operandIsNeverNegativeZero_;
+    }
+    bool operandIsNeverNaN() const {
+        return operandIsNeverNaN_;
+    }
     TypePolicy *typePolicy() {
         return this;
     }
     AliasSet getAliasSet() const {
         return AliasSet::None();
     }
+    void collectRangeInfo();
 };
 
 // Inline implementation of Math.random().
@@ -3664,6 +3734,8 @@ class MRandom : public MNullaryInstruction
     bool possiblyCalls() const {
         return true;
     }
+
+    void computeRange();
 };
 
 class MMathFunction
@@ -3751,6 +3823,7 @@ class MMathFunction
                || function_ == ASin || function_ == ACos || function_ == Floor;
     }
     void trySpecializeFloat32();
+    void computeRange();
 };
 
 class MAdd : public MBinaryArithInstruction
@@ -4139,6 +4212,48 @@ class MFromCharCode
     }
 };
 
+class MStringSplit
+  : public MBinaryInstruction,
+    public MixPolicy<StringPolicy<0>, StringPolicy<1> >
+{
+    types::TypeObject *typeObject_;
+
+    MStringSplit(MDefinition *string, MDefinition *sep, JSObject *templateObject)
+      : MBinaryInstruction(string, sep),
+        typeObject_(templateObject->type())
+    {
+        setResultType(MIRType_Object);
+        setResultTypeSet(MakeSingletonTypeSet(templateObject));
+    }
+
+  public:
+    INSTRUCTION_HEADER(StringSplit)
+
+    static MStringSplit *New(MDefinition *string, MDefinition *sep, JSObject *templateObject) {
+        return new MStringSplit(string, sep, templateObject);
+    }
+    types::TypeObject *typeObject() const {
+        return typeObject_;
+    }
+    MDefinition *string() const {
+        return getOperand(0);
+    }
+    MDefinition *separator() const {
+        return getOperand(1);
+    }
+    TypePolicy *typePolicy() {
+        return this;
+    }
+    bool possiblyCalls() const {
+        return true;
+    }
+    virtual AliasSet getAliasSet() const {
+        // Although this instruction returns a new array, we don't have to mark
+        // it as store instruction, see also MNewArray.
+        return AliasSet::None();
+    }
+};
+
 // Returns an object to use as |this| value. See also ComputeThis and
 // BoxNonStrictThis in Interpreter.h.
 class MComputeThis
@@ -4261,7 +4376,7 @@ class MPhi MOZ_FINAL : public MDefinition, public InlineForwardListNode<MPhi>
     // Use only if capacity has been reserved by reserveLength
     void addInput(MDefinition *ins);
 
-    // Appends a new input to the input vector. May call realloc().
+    // Appends a new input to the input vector. May call realloc_().
     // Prefer reserveLength() and addInput() instead, where possible.
     bool addInputSlow(MDefinition *ins, bool *ptypeChange = nullptr);
 
@@ -5150,11 +5265,13 @@ class MNot
     public TestPolicy
 {
     bool operandMightEmulateUndefined_;
+    bool operandIsNeverNaN_;
 
   public:
     MNot(MDefinition *input)
       : MUnaryInstruction(input),
-        operandMightEmulateUndefined_(true)
+        operandMightEmulateUndefined_(true),
+        operandIsNeverNaN_(false)
     {
         setResultType(MIRType_Boolean);
         setMovable();
@@ -5180,6 +5297,9 @@ class MNot
     bool operandMightEmulateUndefined() const {
         return operandMightEmulateUndefined_;
     }
+    bool operandIsNeverNaN() const {
+        return operandIsNeverNaN_;
+    }
 
     MDefinition *operand() const {
         return getOperand(0);
@@ -5191,6 +5311,7 @@ class MNot
     TypePolicy *typePolicy() {
         return this;
     }
+    void collectRangeInfo();
 
     void trySpecializeFloat32();
     bool isFloat32Commutative() const { return true; }
@@ -5258,6 +5379,7 @@ class MBoundsCheck
     virtual AliasSet getAliasSet() const {
         return AliasSet::None();
     }
+    void computeRange();
 };
 
 // Bailout if index < minimum.
@@ -5615,6 +5737,7 @@ class MArrayPush
     AliasSet getAliasSet() const {
         return AliasSet::Store(AliasSet::Element | AliasSet::ObjectFields);
     }
+    void computeRange();
 };
 
 // Array.prototype.concat on two dense arrays.
@@ -5752,7 +5875,7 @@ class MLoadTypedArrayElementHole
 // Load a value fallibly or infallibly from a statically known typed array.
 class MLoadTypedArrayElementStatic
   : public MUnaryInstruction,
-    public IntPolicy<0>
+    public ConvertToInt32Policy<0>
 {
     MLoadTypedArrayElementStatic(TypedArrayObject *typedArray, MDefinition *ptr)
       : MUnaryInstruction(ptr), typedArray_(typedArray), fallible_(true)
@@ -6757,6 +6880,58 @@ class MGuardObjectType
         if (typeObject() != ins->toGuardObjectType()->typeObject())
             return false;
         if (bailOnEquality() != ins->toGuardObjectType()->bailOnEquality())
+            return false;
+        return congruentIfOperandsEqual(ins);
+    }
+    AliasSet getAliasSet() const {
+        return AliasSet::Load(AliasSet::ObjectFields);
+    }
+};
+
+// Guard on an object's identity, inclusively or exclusively.
+class MGuardObjectIdentity
+  : public MUnaryInstruction,
+    public SingleObjectPolicy
+{
+    CompilerRoot<JSObject *> singleObject_;
+    bool bailOnEquality_;
+
+    MGuardObjectIdentity(MDefinition *obj, JSObject *singleObject, bool bailOnEquality)
+      : MUnaryInstruction(obj),
+        singleObject_(singleObject),
+        bailOnEquality_(bailOnEquality)
+    {
+        setGuard();
+        setMovable();
+        setResultType(MIRType_Object);
+    }
+
+  public:
+    INSTRUCTION_HEADER(GuardObjectIdentity)
+
+    static MGuardObjectIdentity *New(MDefinition *obj, JSObject *singleObject,
+                                 bool bailOnEquality) {
+        return new MGuardObjectIdentity(obj, singleObject, bailOnEquality);
+    }
+
+    TypePolicy *typePolicy() {
+        return this;
+    }
+    MDefinition *obj() const {
+        return getOperand(0);
+    }
+    JSObject *singleObject() const {
+        return singleObject_;
+    }
+    bool bailOnEquality() const {
+        return bailOnEquality_;
+    }
+    bool congruentTo(MDefinition *ins) const {
+        if (!ins->isGuardObjectIdentity())
+            return false;
+        if (singleObject() != ins->toGuardObjectIdentity()->singleObject())
+            return false;
+        if (bailOnEquality() != ins->toGuardObjectIdentity()->bailOnEquality())
             return false;
         return congruentIfOperandsEqual(ins);
     }
@@ -9130,15 +9305,15 @@ bool ElementAccessIsPacked(types::CompilerConstraintList *constraints, MDefiniti
 bool ElementAccessHasExtraIndexedProperty(types::CompilerConstraintList *constraints,
                                           MDefinition *obj);
 MIRType DenseNativeElementType(types::CompilerConstraintList *constraints, MDefinition *obj);
-bool PropertyReadNeedsTypeBarrier(JSContext *cx, JSContext *propertycx,
+bool PropertyReadNeedsTypeBarrier(JSContext *propertycx,
                                   types::CompilerConstraintList *constraints,
                                   types::TypeObjectKey *object, PropertyName *name,
                                   types::TemporaryTypeSet *observed, bool updateObserved);
-bool PropertyReadNeedsTypeBarrier(JSContext *cx, JSContext *propertycx,
+bool PropertyReadNeedsTypeBarrier(JSContext *propertycx,
                                   types::CompilerConstraintList *constraints,
                                   MDefinition *obj, PropertyName *name,
                                   types::TemporaryTypeSet *observed);
-bool PropertyReadOnPrototypeNeedsTypeBarrier(JSContext *cx, types::CompilerConstraintList *constraints,
+bool PropertyReadOnPrototypeNeedsTypeBarrier(types::CompilerConstraintList *constraints,
                                              MDefinition *obj, PropertyName *name,
                                              types::TemporaryTypeSet *observed);
 bool PropertyReadIsIdempotent(types::CompilerConstraintList *constraints,

@@ -170,7 +170,9 @@ enum {
 };
 
 // Make sure we have space for our bits
-#define ASSERT_NODE_FLAGS_SPACE(n) PR_STATIC_ASSERT(WRAPPER_CACHE_FLAGS_BITS_USED + (n) <= 32)
+#define ASSERT_NODE_FLAGS_SPACE(n) \
+  static_assert(WRAPPER_CACHE_FLAGS_BITS_USED + (n) <= 32, \
+                "Not enough space for our bits")
 ASSERT_NODE_FLAGS_SPACE(NODE_TYPE_SPECIFIC_BITS_OFFSET);
 
 /**
@@ -1309,22 +1311,26 @@ private:
   };
 
   void SetBoolFlag(BooleanFlag name, bool value) {
-    PR_STATIC_ASSERT(BooleanFlagCount <= 8*sizeof(mBoolFlags));
+    static_assert(BooleanFlagCount <= 8*sizeof(mBoolFlags),
+                  "Too many boolean flags");
     mBoolFlags = (mBoolFlags & ~(1 << name)) | (value << name);
   }
 
   void SetBoolFlag(BooleanFlag name) {
-    PR_STATIC_ASSERT(BooleanFlagCount <= 8*sizeof(mBoolFlags));
+    static_assert(BooleanFlagCount <= 8*sizeof(mBoolFlags),
+                  "Too many boolean flags");
     mBoolFlags |= (1 << name);
   }
 
   void ClearBoolFlag(BooleanFlag name) {
-    PR_STATIC_ASSERT(BooleanFlagCount <= 8*sizeof(mBoolFlags));
+    static_assert(BooleanFlagCount <= 8*sizeof(mBoolFlags),
+                  "Too many boolean flags");
     mBoolFlags &= ~(1 << name);
   }
 
   bool GetBoolFlag(BooleanFlag name) const {
-    PR_STATIC_ASSERT(BooleanFlagCount <= 8*sizeof(mBoolFlags));
+    static_assert(BooleanFlagCount <= 8*sizeof(mBoolFlags),
+                  "Too many boolean flags");
     return mBoolFlags & (1 << name);
   }
 
@@ -1533,6 +1539,10 @@ public:
     return ReplaceOrInsertBefore(true, &aNode, &aChild, aError);
   }
   nsINode* RemoveChild(nsINode& aChild, mozilla::ErrorResult& aError);
+  already_AddRefed<nsINode> CloneNode(mozilla::ErrorResult& aError)
+  {
+    return CloneNode(true, aError);
+  }
   already_AddRefed<nsINode> CloneNode(bool aDeep, mozilla::ErrorResult& aError);
   bool IsEqualNode(nsINode* aNode);
   void GetNamespaceURI(nsAString& aNamespaceURI) const

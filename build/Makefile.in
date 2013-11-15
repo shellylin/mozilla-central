@@ -47,6 +47,10 @@ DEFINES += \
   -DACCEPTED_MAR_CHANNEL_IDS="$(ACCEPTED_MAR_CHANNEL_IDS)" \
   $(NULL)
 
+ifeq ($(MOZ_BUILD_APP),browser)
+DEFINES += -DMOZ_BUILD_APP_IS_BROWSER
+endif
+
 ifdef MOZ_APP_PROFILE
 DEFINES += -DMOZ_APP_PROFILE="$(MOZ_APP_PROFILE)"
 endif
@@ -102,7 +106,7 @@ _LEAKTEST_FILES =    \
 		$(NULL)
 
 leaktest.py: leaktest.py.in
-	$(PYTHON) $(topsrcdir)/config/Preprocessor.py $^ > $@
+	$(call py_action,preprocessor,$^ -o $@)
 	chmod +x $@
 GARBAGE += leaktest.py
 

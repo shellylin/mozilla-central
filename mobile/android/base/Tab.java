@@ -43,7 +43,8 @@ public class Tab {
     private Bitmap mFavicon;
     private String mFaviconUrl;
     private int mFaviconSize;
-    private boolean mFeedsEnabled;
+    private boolean mHasFeeds;
+    private boolean mHasOpenSearch;
     private JSONObject mIdentityData;
     private boolean mReaderEnabled;
     private BitmapDrawable mThumbnail;
@@ -98,7 +99,8 @@ public class Tab {
         mFavicon = null;
         mFaviconUrl = null;
         mFaviconSize = 0;
-        mFeedsEnabled = false;
+        mHasFeeds = false;
+        mHasOpenSearch = false;
         mIdentityData = null;
         mReaderEnabled = false;
         mEnteringReaderMode = false;
@@ -236,8 +238,12 @@ public class Tab {
         return mFaviconUrl;
     }
 
-    public boolean getFeedsEnabled() {
-        return mFeedsEnabled;
+    public boolean hasFeeds() {
+        return mHasFeeds;
+    }
+
+    public boolean hasOpenSearch() {
+        return mHasOpenSearch;
     }
 
     public String getSecurityMode() {
@@ -359,8 +365,15 @@ public class Tab {
         return mFaviconLoadId;
     }
 
-    public void updateFavicon(Bitmap favicon) {
+    /**
+     * Returns true if the favicon changed.
+     */
+    public boolean updateFavicon(Bitmap favicon) {
+        if (mFavicon == favicon) {
+            return false;
+        }
         mFavicon = favicon;
+        return true;
     }
 
     public synchronized void updateFaviconURL(String faviconUrl, int size) {
@@ -386,8 +399,12 @@ public class Tab {
         mFaviconSize = 0;
     }
 
-    public void setFeedsEnabled(boolean feedsEnabled) {
-        mFeedsEnabled = feedsEnabled;
+    public void setHasFeeds(boolean hasFeeds) {
+        mHasFeeds = hasFeeds;
+    }
+
+    public void setHasOpenSearch(boolean hasOpenSearch) {
+        mHasOpenSearch = hasOpenSearch;
     }
 
     public void updateIdentityData(JSONObject identityData) {
@@ -615,7 +632,7 @@ public class Tab {
 
         setContentType(message.getString("contentType"));
         clearFavicon();
-        setFeedsEnabled(false);
+        setHasFeeds(false);
         updateTitle(null);
         updateIdentityData(null);
         setReaderEnabled(false);

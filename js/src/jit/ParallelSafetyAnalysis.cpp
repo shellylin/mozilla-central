@@ -153,6 +153,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     SAFE_OP(Abs)
     SAFE_OP(Sqrt)
     UNSAFE_OP(Atan2)
+    UNSAFE_OP(Hypot)
     CUSTOM_OP(MathFunction)
     SPECIALIZED_OP(Add, PERMIT_NUMERIC)
     SPECIALIZED_OP(Sub, PERMIT_NUMERIC)
@@ -163,6 +164,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     SAFE_OP(ConcatPar)
     UNSAFE_OP(CharCodeAt)
     UNSAFE_OP(FromCharCode)
+    UNSAFE_OP(StringSplit)
     SAFE_OP(Return)
     CUSTOM_OP(Throw)
     SAFE_OP(Box)     // Boxing just creates a JSVal, doesn't alloc.
@@ -207,6 +209,7 @@ class ParallelSafetyVisitor : public MInstructionVisitor
     UNSAFE_OP(BindNameCache)
     SAFE_OP(GuardShape)
     SAFE_OP(GuardObjectType)
+    SAFE_OP(GuardObjectIdentity)
     SAFE_OP(GuardClass)
     SAFE_OP(AssertRange)
     SAFE_OP(ArrayLength)

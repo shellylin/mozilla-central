@@ -51,6 +51,7 @@
 #include "mozilla/dom/TabChild.h"
 #include "nsRefreshDriver.h"
 #include "Layers.h"
+#include "nsIDOMEvent.h"
 
 #include "nsContentUtils.h"
 #include "nsCxPusher.h"
@@ -2114,23 +2115,18 @@ nsPresContext::UserFontSetUpdated()
   PostRebuildAllStyleDataEvent(NS_STYLE_HINT_REFLOW);
 }
 
-bool
+void
 nsPresContext::EnsureSafeToHandOutCSSRules()
 {
   nsCSSStyleSheet::EnsureUniqueInnerResult res =
     mShell->StyleSet()->EnsureUniqueInnerOnCSSSheets();
   if (res == nsCSSStyleSheet::eUniqueInner_AlreadyUnique) {
     // Nothing to do.
-    return true;
-  }
-  if (res == nsCSSStyleSheet::eUniqueInner_CloneFailed) {
-    return false;
+    return;
   }
 
-  NS_ABORT_IF_FALSE(res == nsCSSStyleSheet::eUniqueInner_ClonedInner,
-                    "unexpected result");
+  MOZ_ASSERT(res == nsCSSStyleSheet::eUniqueInner_ClonedInner);
   RebuildAllStyleData(nsChangeHint(0));
-  return true;
 }
 
 void
@@ -2685,6 +2681,17 @@ gfxFloat
 nsPresContext::AppUnitsToGfxUnits(nscoord aAppUnits) const
 {
   return mDeviceContext->AppUnitsToGfxUnits(aAppUnits);
+}
+
+bool
+nsPresContext::IsDeviceSizePageSize()
+{
+  bool isDeviceSizePageSize = false;
+  nsCOMPtr<nsIDocShell> docShell(do_QueryReferent(mContainer));
+  if (docShell) {
+    isDeviceSizePageSize = docShell->GetDeviceSizeIsPageSize();
+  }
+  return isDeviceSizePageSize;
 }
 
 nsRootPresContext::nsRootPresContext(nsIDocument* aDocument,

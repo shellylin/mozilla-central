@@ -1418,6 +1418,18 @@ CodeGenerator::visitGuardThreadLocalObject(LGuardThreadLocalObject *lir)
 }
 
 bool
+CodeGenerator::visitGuardObjectIdentity(LGuardObjectIdentity *guard)
+{
+    Register obj = ToRegister(guard->input());
+
+    masm.cmpPtr(obj, ImmGCPtr(guard->mir()->singleObject()));
+
+    Assembler::Condition cond =
+        guard->mir()->bailOnEquality() ? Assembler::Equal : Assembler::NotEqual;
+    return bailoutIf(cond, guard->snapshot());
+}
+
+bool
 CodeGenerator::visitTypeBarrierV(LTypeBarrierV *lir)
 {
     ValueOperand operand = ToValue(lir, LTypeBarrierV::Input);
@@ -1598,7 +1610,7 @@ CodeGenerator::visitPostWriteBarrierAllSlots(LPostWriteBarrierAllSlots *lir)
 
     Register objreg = ToRegister(lir->object());
     masm.branchPtr(Assembler::Below, objreg, ImmWord(nursery.start()), ool->entry());
-    masm.branchPtr(Assembler::Below, objreg, ImmWord(nursery.heapEnd()), ool->rejoin());
+    masm.branchPtr(Assembler::AboveOrEqual, objreg, ImmWord(nursery.heapEnd()), ool->entry());
     masm.bind(ool->rejoin());
 #endif
     return true;
@@ -2996,6 +3008,21 @@ bool CodeGenerator::visitAtan2D(LAtan2D *lir)
     masm.passABIArg(y);
     masm.passABIArg(x);
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, ecmaAtan2), MacroAssembler::DOUBLE);
+
+    JS_ASSERT(ToFloatRegister(lir->output()) == ReturnFloatReg);
+    return true;
+}
+
+bool CodeGenerator::visitHypot(LHypot *lir)
+{
+    Register temp = ToRegister(lir->temp());
+    FloatRegister x = ToFloatRegister(lir->x());
+    FloatRegister y = ToFloatRegister(lir->y());
+
+    masm.setupUnalignedABICall(2, temp);
+    masm.passABIArg(x);
+    masm.passABIArg(y);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, ecmaHypot), MacroAssembler::DOUBLE);
 
     JS_ASSERT(ToFloatRegister(lir->output()) == ReturnFloatReg);
     return true;
@@ -4565,7 +4592,7 @@ JitCompartment::generateStringConcatStub(JSContext *cx, ExecutionMode mode)
     masm.ret();
 
     Linker linker(masm);
-    IonCode *code = linker.newCode(cx, JSC::OTHER_CODE);
+    IonCode *code = linker.newCode<CanGC>(cx, JSC::OTHER_CODE);
 
 #ifdef JS_ION_PERF
     writePerfSpewerIonCodeProfile(code, "StringConcatStub");
@@ -4623,6 +4650,19 @@ CodeGenerator::visitFromCharCode(LFromCharCode *lir)
 
     masm.bind(ool->rejoin());
     return true;
+}
+
+typedef JSObject *(*StringSplitFn)(JSContext *, HandleTypeObject, HandleString, HandleString);
+static const VMFunction StringSplitInfo = FunctionInfo<StringSplitFn>(js::str_split_string);
+
+bool
+CodeGenerator::visitStringSplit(LStringSplit *lir)
+{
+    pushArg(ToRegister(lir->separator()));
+    pushArg(ToRegister(lir->string()));
+    pushArg(ImmGCPtr(lir->mir()->typeObject()));
+
+    return callVM(StringSplitInfo, lir);
 }
 
 bool
@@ -5772,7 +5812,7 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
     Linker linker(masm);
     IonCode *code = (executionMode == SequentialExecution)
                     ? linker.newCodeForIonScript(cx)
-                    : linker.newCode(cx, JSC::ION_CODE);
+                    : linker.newCode<CanGC>(cx, JSC::ION_CODE);
     if (!code) {
         // Use js_free instead of IonScript::Destroy: the cache list and
         // backedge list are still uninitialized.

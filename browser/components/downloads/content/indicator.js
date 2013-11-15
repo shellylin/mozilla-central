@@ -56,16 +56,11 @@ const DownloadsButton = {
    * This function is called asynchronously just after window initialization.
    *
    * NOTE: This function should limit the input/output it performs to improve
-   *       startup time, and in particular should not cause the Download Manager
-   *       service to start.
+   *       startup time.
    */
   initializeIndicator: function DB_initializeIndicator()
   {
-    if (!DownloadsCommon.useToolkitUI) {
-      DownloadsIndicatorView.ensureInitialized();
-    } else {
-      DownloadsIndicatorView.ensureTerminated();
-    }
+    DownloadsIndicatorView.ensureInitialized();
   },
 
   /**
@@ -95,11 +90,7 @@ const DownloadsButton = {
   customizeDone: function DB_customizeDone()
   {
     this._customizing = false;
-    if (!DownloadsCommon.useToolkitUI) {
-      DownloadsIndicatorView.afterCustomize();
-    } else {
-      DownloadsIndicatorView.ensureTerminated();
-    }
+    DownloadsIndicatorView.afterCustomize();
   },
 
   /**
@@ -370,7 +361,7 @@ const DownloadsIndicatorView = {
    */
   set hasDownloads(aValue)
   {
-    if (this._hasDownloads != aValue) {
+    if (this._hasDownloads != aValue || (!this._operational && aValue)) {
       this._hasDownloads = aValue;
 
       // If there is at least one download, ensure that the view elements are
@@ -490,14 +481,7 @@ const DownloadsIndicatorView = {
 
   onCommand: function DIV_onCommand(aEvent)
   {
-    if (DownloadsCommon.useToolkitUI) {
-      // The panel won't suppress attention for us, we need to clear now.
-      DownloadsCommon.getIndicatorData(window).attention = false;
-      BrowserDownloadsUI();
-    } else {
-      DownloadsPanel.showPanel();
-    }
-
+    DownloadsPanel.showPanel();
     aEvent.stopPropagation();
   },
 

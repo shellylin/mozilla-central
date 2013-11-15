@@ -3470,6 +3470,7 @@ const Class ArrayBufferObject::class_ = {
         ArrayBufferObject::obj_deleteProperty,
         ArrayBufferObject::obj_deleteElement,
         ArrayBufferObject::obj_deleteSpecial,
+        nullptr, nullptr, /* watch/unwatch */
         ArrayBufferObject::obj_enumerate,
         nullptr,       /* thisObject      */
     }
@@ -3632,6 +3633,7 @@ IMPL_TYPED_ARRAY_COMBINED_UNWRAPPERS(Float64, double, double)
         _typedArray##Object::obj_deleteProperty,                               \
         _typedArray##Object::obj_deleteElement,                                \
         _typedArray##Object::obj_deleteSpecial,                                \
+        nullptr, nullptr, /* watch/unwatch */                                  \
         _typedArray##Object::obj_enumerate,                                    \
         nullptr,             /* thisObject  */                                 \
     }                                                                          \
@@ -4031,12 +4033,17 @@ JS_GetArrayBufferData(JSObject *obj)
 }
 
 JS_FRIEND_API(bool)
-JS_NeuterArrayBuffer(JSContext *cx, JSObject *obj)
+JS_NeuterArrayBuffer(JSContext *cx, HandleObject obj)
 {
-    ArrayBufferObject &buffer = obj->as<ArrayBufferObject>();
-    if (!buffer.neuterViews(cx))
+    if (!obj->is<ArrayBufferObject>()) {
+        JS_ReportError(cx, "ArrayBuffer object required");
         return false;
-    buffer.neuter(cx);
+    }
+
+    Rooted<ArrayBufferObject*> buffer(cx, &obj->as<ArrayBufferObject>());
+    if (!buffer->neuterViews(cx))
+        return false;
+    buffer->neuter(cx);
     return true;
 }
 

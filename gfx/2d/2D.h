@@ -74,23 +74,19 @@ struct NativeFont {
  * mCompositionOp - The operator that indicates how the source and destination
  *                  patterns are blended.
  * mAntiAliasMode - The AntiAlias mode used for this drawing operation.
- * mSnapping      - Whether this operation is snapped to pixel boundaries.
  */
 struct DrawOptions {
   DrawOptions(Float aAlpha = 1.0f,
               CompositionOp aCompositionOp = OP_OVER,
-              AntialiasMode aAntialiasMode = AA_DEFAULT,
-              Snapping aSnapping = SNAP_NONE)
+              AntialiasMode aAntialiasMode = AA_DEFAULT)
     : mAlpha(aAlpha)
     , mCompositionOp(aCompositionOp)
     , mAntialiasMode(aAntialiasMode)
-    , mSnapping(aSnapping)
   {}
 
   Float mAlpha;
   CompositionOp mCompositionOp : 8;
   AntialiasMode mAntialiasMode : 3;
-  Snapping mSnapping : 1;
 };
 
 /*
@@ -444,6 +440,11 @@ public:
   virtual Rect GetStrokedBounds(const StrokeOptions &aStrokeOptions,
                                 const Matrix &aTransform = Matrix()) const = 0;
 
+  /* Take the contents of this path and stream it to another sink, this works
+   * regardless of the backend that might be used for the destination sink.
+   */
+  virtual void StreamToSink(PathSink *aSink) const = 0;
+ 
   /* This gets the fillrule this path's builder was created with. This is not
    * mutable.
    */
@@ -795,9 +796,9 @@ public:
                                                                   SurfaceFormat aFormat) const = 0;
 
   /*
-   * Create a SourceSurface optimized for use with this DrawTarget from
-   * an arbitrary other SourceSurface. This may return aSourceSurface or some
-   * other existing surface.
+   * Create a SourceSurface optimized for use with this DrawTarget from an
+   * arbitrary SourceSurface type supported by this backend. This may return
+   * aSourceSurface or some other existing surface.
    */
   virtual TemporaryRef<SourceSurface> OptimizeSourceSurface(SourceSurface *aSurface) const = 0;
 
@@ -892,7 +893,7 @@ public:
     return mOpaqueRect;
   }
 
-  void SetPermitSubpixelAA(bool aPermitSubpixelAA) {
+  virtual void SetPermitSubpixelAA(bool aPermitSubpixelAA) {
     mPermitSubpixelAA = aPermitSubpixelAA;
   }
 
@@ -936,6 +937,10 @@ public:
   static bool HasSSE2();
 
   static TemporaryRef<DrawTarget> CreateDrawTargetForCairoSurface(cairo_surface_t* aSurface, const IntSize& aSize);
+
+  static TemporaryRef<SourceSurface>
+    CreateSourceSurfaceForCairoSurface(cairo_surface_t* aSurface,
+                                       SurfaceFormat aFormat);
 
   static TemporaryRef<DrawTarget>
     CreateDrawTarget(BackendType aBackend, const IntSize &aSize, SurfaceFormat aFormat);
@@ -1002,6 +1007,8 @@ public:
   static void
     SetGlobalSkiaCacheLimits(int aCount, int aSizeInBytes);
 #endif
+
+  static void PurgeTextureCaches();
 
 #if defined(USE_SKIA) && defined(MOZ_ENABLE_FREETYPE)
   static TemporaryRef<GlyphRenderingOptions>

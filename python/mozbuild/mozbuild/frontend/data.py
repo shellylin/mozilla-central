@@ -26,11 +26,18 @@ from .sandbox_symbols import compute_final_target
 class TreeMetadata(object):
     """Base class for all data being captured."""
 
+    def __init__(self):
+        self._ack = False
+
+    def ack(self):
+        self._ack = True
+
 
 class ReaderSummary(TreeMetadata):
     """A summary of what the reader did."""
 
     def __init__(self, total_file_count, total_execution_time):
+        TreeMetadata.__init__(self)
         self.total_file_count = total_file_count
         self.total_execution_time = total_execution_time
 
@@ -53,6 +60,8 @@ class SandboxDerived(TreeMetadata):
     )
 
     def __init__(self, sandbox):
+        TreeMetadata.__init__(self)
+
         # Capture the files that were evaluated to build this sandbox.
         self.sandbox_main_path = sandbox.main_path
         self.sandbox_all_paths = sandbox.all_paths
@@ -279,13 +288,14 @@ class GeneratedWebIDLFile(SandboxDerived):
 
         self.basename = path
 
-class Program(SandboxDerived):
-    """Sandbox container object for PROGRAM, which is a unicode string.
+class BaseProgram(SandboxDerived):
+    """Sandbox container object for programs, which is a unicode string.
 
-    This class handles automatically appending BIN_SUFFIX to the PROGRAM value.
-    If BIN_SUFFIX is not defined, PROGRAM is unchanged.
-    Otherwise, if PROGRAM ends in BIN_SUFFIX, it is unchanged
-    Otherwise, BIN_SUFFIX is appended to PROGRAM
+    This class handles automatically appending a binary suffix to the program
+    name.
+    If the suffix is not defined, the program name is unchanged.
+    Otherwise, if the program name ends with the given suffix, it is unchanged
+    Otherwise, the suffix is appended to the program name.
     """
     __slots__ = ('program')
 
@@ -296,6 +306,22 @@ class Program(SandboxDerived):
         if not program.endswith(bin_suffix):
             program += bin_suffix
         self.program = program
+
+
+class Program(BaseProgram):
+    """Sandbox container object for PROGRAM"""
+
+
+class HostProgram(BaseProgram):
+    """Sandbox container object for HOST_PROGRAM"""
+
+
+class SimpleProgram(BaseProgram):
+    """Sandbox container object for each program in SIMPLE_PROGRAMS"""
+
+
+class HostSimpleProgram(BaseProgram):
+    """Sandbox container object for each program in HOST_SIMPLE_PROGRAMS"""
 
 
 class TestManifest(SandboxDerived):

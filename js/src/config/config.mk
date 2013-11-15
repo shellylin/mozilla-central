@@ -49,6 +49,8 @@ _MOZBUILD_EXTERNAL_VARIABLES := \
   HOST_CSRCS \
   HOST_CMMSRCS \
   HOST_LIBRARY_NAME \
+  HOST_PROGRAM \
+  HOST_SIMPLE_PROGRAMS \
   IS_COMPONENT \
   JAVA_JAR_TARGETS \
   JS_MODULES_PATH \
@@ -58,6 +60,7 @@ _MOZBUILD_EXTERNAL_VARIABLES := \
   MSVC_ENABLE_PGO \
   NO_DIST_INSTALL \
   PARALLEL_DIRS \
+  PROGRAM \
   SDK_HEADERS \
   SIMPLE_PROGRAMS \
   TEST_DIRS \
@@ -192,9 +195,8 @@ MOZ_PSEUDO_DERECURSE :=
 endif
 endif
 
-# Disable MOZ_PSEUDO_DERECURSE on the second PGO pass until it's widely
-# tested.
-ifdef MOZ_PROFILE_USE
+# Disable MOZ_PSEUDO_DERECURSE on PGO builds until it's fixed.
+ifneq (,$(MOZ_PROFILE_USE)$(MOZ_PROFILE_GENERATE))
 MOZ_PSEUDO_DERECURSE :=
 endif
 
@@ -397,10 +399,10 @@ NO_PROFILE_GUIDED_OPTIMIZE = 1
 endif
 
 # Enable profile-based feedback
-ifndef NO_PROFILE_GUIDED_OPTIMIZE
+ifneq (1,$(NO_PROFILE_GUIDED_OPTIMIZE))
 ifdef MOZ_PROFILE_GENERATE
-OS_CFLAGS += $(PROFILE_GEN_CFLAGS)
-OS_CXXFLAGS += $(PROFILE_GEN_CFLAGS)
+OS_CFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_GEN_CFLAGS))
+OS_CXXFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_GEN_CFLAGS))
 OS_LDFLAGS += $(PROFILE_GEN_LDFLAGS)
 ifeq (WINNT,$(OS_ARCH))
 AR_FLAGS += -LTCG
@@ -408,8 +410,8 @@ endif
 endif # MOZ_PROFILE_GENERATE
 
 ifdef MOZ_PROFILE_USE
-OS_CFLAGS += $(PROFILE_USE_CFLAGS)
-OS_CXXFLAGS += $(PROFILE_USE_CFLAGS)
+OS_CFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_USE_CFLAGS))
+OS_CXXFLAGS += $(if $(filter $(notdir $<),$(notdir $(NO_PROFILE_GUIDED_OPTIMIZE))),,$(PROFILE_USE_CFLAGS))
 OS_LDFLAGS += $(PROFILE_USE_LDFLAGS)
 ifeq (WINNT,$(OS_ARCH))
 AR_FLAGS += -LTCG
@@ -620,8 +622,13 @@ endif
 endif
 
 # Default location of include files
+ifndef LIBXUL_SDK
 IDL_PARSER_DIR = $(topsrcdir)/xpcom/idl-parser
 IDL_PARSER_CACHE_DIR = $(DEPTH)/xpcom/idl-parser
+else
+IDL_PARSER_DIR = $(LIBXUL_SDK)/sdk/bin
+IDL_PARSER_CACHE_DIR = $(LIBXUL_SDK)/sdk/bin
+endif
 
 SDK_LIB_DIR = $(DIST)/sdk/lib
 SDK_BIN_DIR = $(DIST)/sdk/bin

@@ -443,6 +443,7 @@ struct nsStyleBackground {
     uint8_t mAttachment;                // [reset] See nsStyleConsts.h
     uint8_t mClip;                      // [reset] See nsStyleConsts.h
     uint8_t mOrigin;                    // [reset] See nsStyleConsts.h
+    uint8_t mBlendMode;                 // [reset] See nsStyleConsts.h
     Repeat mRepeat;                     // [reset] See nsStyleConsts.h
     Position mPosition;                 // [reset]
     nsStyleImage mImage;                // [reset]
@@ -488,7 +489,8 @@ struct nsStyleBackground {
            mRepeatCount,
            mPositionCount,
            mImageCount,
-           mSizeCount;
+           mSizeCount,
+           mBlendModeCount;
   // Layers are stored in an array, matching the top-to-bottom order in
   // which they are specified in CSS.  The number of layers to be used
   // should come from the background-image property.  We create
@@ -1778,6 +1780,17 @@ struct nsStyleDisplay {
 
   bool IsOriginalDisplayInlineOutsideStyle() const {
     return IsDisplayTypeInlineOutside(mOriginalDisplay);
+  }
+
+  bool IsInnerTableStyle() const {
+    return NS_STYLE_DISPLAY_TABLE_CAPTION == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_CELL == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_ROW == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_ROW_GROUP == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_HEADER_GROUP == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_FOOTER_GROUP == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_COLUMN == mDisplay ||
+           NS_STYLE_DISPLAY_TABLE_COLUMN_GROUP == mDisplay;
   }
 
   bool IsFloatingStyle() const {

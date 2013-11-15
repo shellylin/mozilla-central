@@ -146,6 +146,8 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
     nativeStackBase(0),
     cxCallback(nullptr),
     destroyCompartmentCallback(nullptr),
+    destroyZoneCallback(nullptr),
+    sweepZoneCallback(nullptr),
     compartmentNameCallback(nullptr),
     activityCallback(nullptr),
     activityCallbackArg(nullptr),
@@ -233,6 +235,7 @@ JSRuntime::JSRuntime(JSUseHelperThreads useHelperThreads)
     gcSliceCallback(nullptr),
     gcFinalizeCallback(nullptr),
     gcMallocBytes(0),
+    gcMallocGCTriggered(false),
     scriptAndCountsVector(nullptr),
     NaNValue(DoubleNaNValue()),
     negativeInfinityValue(DoubleValue(NegativeInfinity())),
@@ -384,9 +387,6 @@ JSRuntime::init(uint32_t maxbytes)
     if (!scriptDataTable_.init())
         return false;
 
-    if (!threadPool.init())
-        return false;
-
     if (!evalCache.init())
         return false;
 
@@ -408,7 +408,7 @@ JSRuntime::~JSRuntime()
     sourceHook = nullptr;
 
     /* Off thread compilation and parsing depend on atoms still existing. */
-    for (CompartmentsIter comp(this); !comp.done(); comp.next())
+    for (CompartmentsIter comp(this, SkipAtoms); !comp.done(); comp.next())
         CancelOffThreadIonCompile(comp, nullptr);
     WaitForOffThreadParsingToFinish(this);
 
@@ -421,7 +421,7 @@ JSRuntime::~JSRuntime()
     FinishCommonNames(this);
 
     /* Clear debugging state to remove GC roots. */
-    for (CompartmentsIter comp(this); !comp.done(); comp.next()) {
+    for (CompartmentsIter comp(this, SkipAtoms); !comp.done(); comp.next()) {
         comp->clearTraps(defaultFreeOp());
         if (WatchpointMap *wpmap = comp->watchpointMap)
             wpmap->clear();
@@ -713,7 +713,7 @@ JSRuntime::setGCMaxMallocBytes(size_t value)
      */
     gcMaxMallocBytes = (ptrdiff_t(value) >= 0) ? value : size_t(-1) >> 1;
     resetGCMallocBytes();
-    for (ZonesIter zone(this); !zone.done(); zone.next())
+    for (ZonesIter zone(this, WithAtoms); !zone.done(); zone.next())
         zone->setGCMaxMallocBytes(value);
 }
 
@@ -727,10 +727,8 @@ void
 JSRuntime::updateMallocCounter(JS::Zone *zone, size_t nbytes)
 {
     /* We tolerate any thread races when updating gcMallocBytes. */
-    ptrdiff_t oldCount = gcMallocBytes;
-    ptrdiff_t newCount = oldCount - ptrdiff_t(nbytes);
-    gcMallocBytes = newCount;
-    if (JS_UNLIKELY(newCount <= 0 && oldCount > 0))
+    gcMallocBytes -= ptrdiff_t(nbytes);
+    if (JS_UNLIKELY(gcMallocBytes <= 0))
         onTooMuchMalloc();
     else if (zone)
         zone->updateMallocCounter(nbytes);
@@ -739,8 +737,11 @@ JSRuntime::updateMallocCounter(JS::Zone *zone, size_t nbytes)
 JS_FRIEND_API(void)
 JSRuntime::onTooMuchMalloc()
 {
-    if (CurrentThreadCanAccessRuntime(this))
-        TriggerGC(this, JS::gcreason::TOO_MUCH_MALLOC);
+    if (!CurrentThreadCanAccessRuntime(this))
+        return;
+
+    if (!gcMallocGCTriggered)
+        gcMallocGCTriggered = TriggerGC(this, JS::gcreason::TOO_MUCH_MALLOC);
 }
 
 JS_FRIEND_API(void *)

@@ -172,7 +172,7 @@ JS_SetDebugModeForAllCompartments(JSContext *cx, bool debug)
 {
     AutoDebugModeGC dmgc(cx->runtime());
 
-    for (CompartmentsIter c(cx->runtime()); !c.done(); c.next()) {
+    for (CompartmentsIter c(cx->runtime(), SkipAtoms); !c.done(); c.next()) {
         // Ignore special compartments (atoms, JSD compartments)
         if (c->principals) {
             if (!c->setDebugModeFromC(cx, !!debug, dmgc))
@@ -754,10 +754,10 @@ JS_PutPropertyDescArray(JSContext *cx, JSPropertyDescArray *pda)
 
     pd = pda->array;
     for (i = 0; i < pda->length; i++) {
-        js_RemoveRoot(cx->runtime(), &pd[i].id);
-        js_RemoveRoot(cx->runtime(), &pd[i].value);
+        RemoveRoot(cx->runtime(), &pd[i].id);
+        RemoveRoot(cx->runtime(), &pd[i].value);
         if (pd[i].flags & JSPD_ALIAS)
-            js_RemoveRoot(cx->runtime(), &pd[i].alias);
+            RemoveRoot(cx->runtime(), &pd[i].alias);
     }
     js_free(pd);
     pda->array = nullptr;
@@ -1124,7 +1124,7 @@ FormatFrame(JSContext *cx, const NonBuiltinScriptFrameIter &iter, char *buf, int
             if (i < bindings.length()) {
                 name = nameBytes.encodeLatin1(cx, bindings[i].name());
                 if (!buf)
-                    return NULL;
+                    return nullptr;
             }
 
             if (value) {

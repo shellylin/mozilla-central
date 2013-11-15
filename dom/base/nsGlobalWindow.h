@@ -354,7 +354,6 @@ public:
 
   void PoisonOuterWindowProxy(JSObject *aObject);
   virtual void OnFinalize(JSObject* aObject);
-  virtual void SetScriptsEnabled(bool aEnabled, bool aFireTimeouts);
 
   virtual bool IsBlackForCC();
 
@@ -434,6 +433,7 @@ public:
   {
     return mIsFrozen;
   }
+  virtual NS_HIDDEN_(bool) IsRunningTimeout() { return mTimeoutFiringDepth > 0; }
 
   virtual NS_HIDDEN_(bool) WouldReuseInnerWindow(nsIDocument *aNewDocument);
 

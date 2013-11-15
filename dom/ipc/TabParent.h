@@ -22,7 +22,10 @@
 
 struct gfxMatrix;
 class nsFrameLoader;
+class nsIContent;
+class nsIPrincipal;
 class nsIURI;
+class nsIWidget;
 class CpowHolder;
 
 namespace mozilla {
@@ -119,14 +122,17 @@ public:
     virtual bool RecvSyncMessage(const nsString& aMessage,
                                  const ClonedMessageData& aData,
                                  const InfallibleTArray<CpowEntry>& aCpows,
+                                 const IPC::Principal& aPrincipal,
                                  InfallibleTArray<nsString>* aJSONRetVal);
     virtual bool AnswerRpcMessage(const nsString& aMessage,
                                   const ClonedMessageData& aData,
                                   const InfallibleTArray<CpowEntry>& aCpows,
+                                  const IPC::Principal& aPrincipal,
                                   InfallibleTArray<nsString>* aJSONRetVal);
     virtual bool RecvAsyncMessage(const nsString& aMessage,
                                   const ClonedMessageData& aData,
-                                  const InfallibleTArray<CpowEntry>& aCpows);
+                                  const InfallibleTArray<CpowEntry>& aCpows,
+                                  const IPC::Principal& aPrincipal);
     virtual bool RecvNotifyIMEFocus(const bool& aFocus,
                                     nsIMEUpdatePreference* aPreference,
                                     uint32_t* aSeqno);
@@ -213,8 +219,7 @@ public:
     virtual bool DeallocPDocumentRendererParent(PDocumentRendererParent* actor);
 
     virtual PContentPermissionRequestParent*
-    AllocPContentPermissionRequestParent(const InfallibleTArray<PermissionRequest>& aRequests,
-                                         const IPC::Principal& aPrincipal);
+    AllocPContentPermissionRequestParent(const nsCString& aType, const nsCString& aAccess, const IPC::Principal& aPrincipal);
     virtual bool DeallocPContentPermissionRequestParent(PContentPermissionRequestParent* actor);
 
     virtual POfflineCacheUpdateParent* AllocPOfflineCacheUpdateParent(
@@ -253,6 +258,7 @@ protected:
                         bool aSync,
                         const StructuredCloneData* aCloneData,
                         CpowHolder* aCpows,
+                        nsIPrincipal* aPrincipal,
                         InfallibleTArray<nsString>* aJSONRetVal = nullptr);
 
     virtual bool Recv__delete__() MOZ_OVERRIDE;

@@ -553,11 +553,14 @@ nsConvertToActualKeyGenParams(uint32_t keyGenMech, char *params,
               next_input, name, name_len, value, value_len,
               next_input))
       {
-        if (PL_strncmp(name, "curve", std::min(name_len, 5)) == 0)
+        // use only the first specified curve
+        if (!curve && PL_strncmp(name, "curve", std::min(name_len, 5)) == 0)
         {
           curve = PL_strndup(value, value_len);
         }
-        else if (PL_strncmp(name, "popcert", std::min(name_len, 7)) == 0)
+        // use only the first specified popcert
+        else if (!keyPairInfo->ecPopCert &&
+                 PL_strncmp(name, "popcert", std::min(name_len, 7)) == 0)
         {
           char *certstr = PL_strndup(value, value_len);
           if (certstr) {
@@ -574,7 +577,7 @@ nsConvertToActualKeyGenParams(uint32_t keyGenMech, char *params,
     }
 
     // first try to use the params of the provided CA cert
-    if (keyPairInfo->ecPopPubKey)
+    if (keyPairInfo->ecPopPubKey && keyPairInfo->ecPopPubKey->keyType == ecKey)
     {
       returnParams = SECITEM_DupItem(&keyPairInfo->ecPopPubKey->u.ec.DEREncodedParams);
     }
@@ -1923,7 +1926,8 @@ nsCrypto::GenerateCRMFRequest(JSContext* aContext,
     csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_EVAL,
                              NS_ConvertASCIItoUTF16(fileName),
                              scriptSample,
-                             lineNum);
+                             lineNum,
+                             EmptyString());
   }
 
   if (!evalAllowed) {

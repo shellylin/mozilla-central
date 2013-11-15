@@ -264,7 +264,7 @@ nsScreen::MozLockOrientation(const JS::Value& aOrientation, JSContext* aCx,
           return NS_ERROR_FAILURE;
         }
 
-        JS::RootedString jsString(aCx, JS_ValueToString(aCx, temp));
+        JS::Rooted<JSString*> jsString(aCx, JS_ValueToString(aCx, temp));
         if (!jsString) {
           return NS_ERROR_FAILURE;
         }
@@ -283,7 +283,7 @@ nsScreen::MozLockOrientation(const JS::Value& aOrientation, JSContext* aCx,
     }
   }
 
-  JS::RootedString jsString(aCx, JS_ValueToString(aCx, aOrientation));
+  JS::Rooted<JSString*> jsString(aCx, JS_ValueToString(aCx, aOrientation));
   if (!jsString) {
     return NS_ERROR_FAILURE;
   }
@@ -388,6 +388,19 @@ nsScreen::SlowMozUnlockOrientation()
 {
   MozUnlockOrientation();
   return NS_OK;
+}
+
+bool
+nsScreen::IsDeviceSizePageSize()
+{
+  nsPIDOMWindow* owner = GetOwner();
+  if (owner) {
+    nsIDocShell* docShell = owner->GetDocShell();
+    if (docShell) {
+      return docShell->GetDeviceSizeIsPageSize();
+    }
+  }
+  return false;
 }
 
 /* virtual */

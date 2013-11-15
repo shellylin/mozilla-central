@@ -830,7 +830,7 @@ RenderFrameParent::NotifyInputEvent(const WidgetInputEvent& aEvent,
                                     WidgetInputEvent* aOutEvent)
 {
   if (GetApzcTreeManager()) {
-    GetApzcTreeManager()->ReceiveInputEvent(aEvent, aOutEvent);
+    GetApzcTreeManager()->ReceiveInputEvent(aEvent, nullptr, aOutEvent);
   }
 }
 
@@ -872,24 +872,6 @@ bool
 RenderFrameParent::RecvNotifyCompositorTransaction()
 {
   TriggerRepaint();
-  return true;
-}
-
-bool
-RenderFrameParent::RecvCancelDefaultPanZoom()
-{
-  if (GetApzcTreeManager()) {
-    GetApzcTreeManager()->CancelDefaultPanZoom(ScrollableLayerGuid(mLayersId));
-  }
-  return true;
-}
-
-bool
-RenderFrameParent::RecvDetectScrollableSubframe()
-{
-  if (GetApzcTreeManager()) {
-    GetApzcTreeManager()->DetectScrollableSubframe(ScrollableLayerGuid(mLayersId));
-  }
   return true;
 }
 

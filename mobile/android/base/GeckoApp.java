@@ -18,6 +18,7 @@ import org.mozilla.gecko.menu.GeckoMenuInflater;
 import org.mozilla.gecko.menu.MenuPanel;
 import org.mozilla.gecko.health.BrowserHealthRecorder;
 import org.mozilla.gecko.health.BrowserHealthRecorder.SessionInformation;
+import org.mozilla.gecko.preferences.GeckoPreferences;
 import org.mozilla.gecko.updater.UpdateService;
 import org.mozilla.gecko.updater.UpdateServiceHelper;
 import org.mozilla.gecko.util.ActivityResultHandler;
@@ -583,19 +584,6 @@ abstract public class GeckoApp
                 String host = message.getString("host");
                 JSONArray permissions = message.getJSONArray("permissions");
                 showSiteSettingsDialog(host, permissions);
-            } else if (event.equals("Tab:ViewportMetadata")) {
-                int tabId = message.getInt("tabID");
-                Tab tab = Tabs.getInstance().getTab(tabId);
-                if (tab == null)
-                    return;
-                tab.setZoomConstraints(new ZoomConstraints(message));
-                tab.setIsRTL(message.getBoolean("isRTL"));
-                // Sync up the layer view and the tab if the tab is currently displayed.
-                LayerView layerView = mLayerView;
-                if (layerView != null && Tabs.getInstance().isSelectedTab(tab)) {
-                    layerView.setZoomConstraints(tab.getZoomConstraints());
-                    layerView.setIsRTL(tab.getIsRTL());
-                }
             } else if (event.equals("Session:StatePurged")) {
                 onStatePurged();
             } else if (event.equals("Bookmark:Insert")) {
@@ -1306,6 +1294,7 @@ abstract public class GeckoApp
         });
 
         GeckoAppShell.setNotificationClient(makeNotificationClient());
+        NotificationHelper.init(getApplicationContext());
     }
 
     protected void initializeChrome() {
@@ -1487,7 +1476,6 @@ abstract public class GeckoApp
         registerEventListener("ToggleChrome:Show");
         registerEventListener("ToggleChrome:Focus");
         registerEventListener("Permissions:Data");
-        registerEventListener("Tab:ViewportMetadata");
         registerEventListener("Session:StatePurged");
         registerEventListener("Bookmark:Insert");
         registerEventListener("Accessibility:Event");
@@ -2067,6 +2055,7 @@ abstract public class GeckoApp
             mPromptService.destroy();
         if (mTextSelection != null)
             mTextSelection.destroy();
+        NotificationHelper.destroy();
 
         if (SmsManager.getInstance() != null) {
             SmsManager.getInstance().stop();

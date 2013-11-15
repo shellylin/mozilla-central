@@ -216,10 +216,16 @@ this.OutputGenerator = {
     }
 
     let typeName = Utils.getAttributes(aAccessible)['text-input-type'];
-    if (!typeName) {
+    // Ignore the the input type="text" case.
+    if (!typeName || typeName === 'text') {
       return;
     }
-    aDesc.push(gStringBundle.GetStringFromName('textInputType_' + typeName));
+    typeName = 'textInputType_' + typeName;
+    try {
+      aDesc.push(gStringBundle.GetStringFromName(typeName));
+    } catch (x) {
+      Logger.warning('Failed to get a string from a bundle for', typeName);
+    }
   },
 
   get outputOrder() {

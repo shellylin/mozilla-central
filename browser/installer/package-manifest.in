@@ -521,8 +521,18 @@
 @BINPATH@/components/TCPSocketParentIntermediary.js
 @BINPATH@/components/TCPSocket.manifest
 
-@BINPATH@/components/AppProtocolHandler.js
-@BINPATH@/components/AppProtocolHandler.manifest
+#ifdef MOZ_ACTIVITIES
+@BINPATH@/components/SystemMessageInternal.js
+@BINPATH@/components/SystemMessageManager.js
+@BINPATH@/components/SystemMessageManager.manifest
+
+@BINPATH@/components/Activities.manifest
+@BINPATH@/components/ActivityOptions.js
+@BINPATH@/components/ActivityProxy.js
+@BINPATH@/components/ActivityRequestHandler.js
+@BINPATH@/components/ActivityWrapper.js
+@BINPATH@/components/ActivityMessageConfigurator.js
+#endif
 
 @BINPATH@/components/Payment.js
 @BINPATH@/components/PaymentFlowInfo.js
@@ -700,6 +710,11 @@
 @BINPATH@/components/pipboot.xpt
 @BINPATH@/components/pipnss.xpt
 @BINPATH@/components/pippki.xpt
+
+; For content sandboxing
+#if defined(XP_WIN) && defined(MOZ_CONTENT_SANDBOX)
+@BINPATH@/@DLL_PREFIX@sandboxbroker@DLL_SUFFIX@
+#endif
 
 ; for Solaris SPARC
 #ifdef SOLARIS

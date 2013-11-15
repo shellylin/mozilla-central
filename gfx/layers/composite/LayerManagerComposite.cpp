@@ -303,8 +303,7 @@ LayerManagerComposite::RenderDebugOverlay(const Rect& aBounds)
                           clip,
                           effects,
                           opacity,
-                          gfx::Matrix4x4(),
-                          gfx::Point());
+                          gfx::Matrix4x4());
   }
   // We intentionally overflow at 2^16.
   sFrameCount++;
@@ -359,7 +358,7 @@ LayerManagerComposite::Render()
   mCompositor->RestoreState();
 
   // Render our layers.
-  RootLayer()->RenderLayer(nsIntPoint(0, 0), clipRect);
+  RootLayer()->RenderLayer(clipRect);
 
   // Allow widget to render a custom foreground.
   mCompositor->SaveState();
@@ -541,14 +540,10 @@ LayerManagerComposite::ComputeRenderIntegrity()
   Layer* primaryScrollable = GetPrimaryScrollableLayer();
   if (primaryScrollable) {
     // This is derived from the code in
-    // gfx/layers/ipc/CompositorParent.cpp::TransformShadowTree.
-    const gfx3DMatrix& rootTransform = root->GetTransform();
-    float devPixelRatioX = 1 / rootTransform.GetXScale();
-    float devPixelRatioY = 1 / rootTransform.GetYScale();
-
-    gfx3DMatrix transform = primaryScrollable->GetEffectiveTransform();
-    transform.ScalePost(devPixelRatioX, devPixelRatioY, 1);
+    // AsyncCompositionManager::TransformScrollableLayer
     const FrameMetrics& metrics = primaryScrollable->AsContainerLayer()->GetFrameMetrics();
+    gfx3DMatrix transform = primaryScrollable->GetEffectiveTransform();
+    transform.ScalePost(metrics.mResolution.scale, metrics.mResolution.scale, 1);
 
     // Clip the screen rect to the document bounds
     gfxRect documentBounds =
