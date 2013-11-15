@@ -59,3 +59,4 @@ LIBXUL_LIBRARY = True
 
 LIBRARY_NAME = 'gksvgbase_s'
 
+FINAL_LIBRARY = 'gklayout'
