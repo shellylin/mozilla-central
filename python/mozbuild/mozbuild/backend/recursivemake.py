@@ -1058,13 +1058,13 @@ class RecursiveMakeBackend(CommonBackend):
                 (target, ' '.join(jar.sources)))
         if jar.generated_sources:
             backend_file.write('%s_PP_JAVAFILES := %s\n' %
-                (target, ' '.join(jar.generated_sources)))
+                (target, ' '.join(os.path.join('generated', f) for f in jar.generated_sources)))
         if jar.extra_jars:
             backend_file.write('%s_EXTRA_JARS := %s\n' %
                 (target, ' '.join(jar.extra_jars)))
         if jar.javac_flags:
             backend_file.write('%s_JAVAC_FLAGS := %s\n' %
-                (target, jar.javac_flags))
+                (target, ' '.join(jar.javac_flags)))
 
     def _process_library_definition(self, libdef, backend_file):
         backend_file.write('LIBRARY_NAME = %s\n' % libdef.basename)

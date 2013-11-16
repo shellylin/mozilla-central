@@ -18,6 +18,11 @@ SOURCES += [
     'nsLayoutStatics.cpp',
 ]
 
+if CONFIG['MOZ_NFC']:
+    LOCAL_INCLUDES += [
+        '/dom/nfc'
+    ]
+
 FAIL_ON_WARNINGS = True
 
 LIBXUL_LIBRARY = True
