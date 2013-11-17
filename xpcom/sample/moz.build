@@ -14,7 +14,7 @@ XPIDL_SOURCES += ['nsISample.idl']
 
 # MODULE specifies where header files from this Makefile are installed,
 # i.e. dist/include/xpcomsample
-MODULE = 'xpcomsample'
+XPIDL_MODULE = 'xpcomsample'
 
 # CPP_SOURCES specifies C++ files to be built into a library.
 SOURCES += [
