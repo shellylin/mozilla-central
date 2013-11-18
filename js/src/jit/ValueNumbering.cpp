@@ -16,6 +16,7 @@ using namespace js::jit;
 ValueNumberer::ValueNumberer(MIRGenerator *mir, MIRGraph &graph, bool optimistic)
   : mir(mir),
     graph_(graph),
+    values(graph.alloc()),
     pessimisticPass_(!optimistic),
     count_(0)
 { }
@@ -23,7 +24,7 @@ ValueNumberer::ValueNumberer(MIRGenerator *mir, MIRGraph &graph, bool optimistic
 TempAllocator &
 ValueNumberer::alloc() const
 {
-    return mir->temp();
+    return graph_.alloc();
 }
 
 uint32_t
@@ -50,7 +51,7 @@ ValueNumberer::simplify(MDefinition *def, bool useValueNumbers)
     if (def->isEffectful())
         return def;
 
-    MDefinition *ins = def->foldsTo(useValueNumbers);
+    MDefinition *ins = def->foldsTo(alloc(), useValueNumbers);
 
     if (ins == def || !ins->updateForFolding(def))
         return def;
@@ -83,7 +84,7 @@ ValueNumberer::simplifyControlInstruction(MControlInstruction *def)
     if (def->isEffectful())
         return def;
 
-    MDefinition *repl = def->foldsTo(false);
+    MDefinition *repl = def->foldsTo(alloc(), false);
     if (repl == def || !repl->updateForFolding(def))
         return def;
 
@@ -340,7 +341,7 @@ ValueNumberer::eliminateRedundancies()
     // is not in dominated scope), then we insert the current instruction,
     // since it is the most dominant instruction with the given value number.
 
-    InstructionMap defs;
+    InstructionMap defs(alloc());
 
     if (!defs.init())
         return false;
@@ -348,7 +349,7 @@ ValueNumberer::eliminateRedundancies()
     IonSpew(IonSpew_GVN, "Eliminating redundant instructions");
 
     // Stack for pre-order CFG traversal.
-    Vector<MBasicBlock *, 1, IonAllocPolicy> worklist;
+    Vector<MBasicBlock *, 1, IonAllocPolicy> worklist(alloc());
 
     // The index of the current block in the CFG traversal.
     size_t index = 0;

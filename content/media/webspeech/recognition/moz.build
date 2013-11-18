@@ -23,7 +23,7 @@ EXPORTS.mozilla.dom += [
     'test/FakeSpeechRecognitionService.h',
 ]
 
-SOURCES += [
+UNIFIED_SOURCES += [
     'EnableWebSpeechRecognitionCheck.cpp',
     'endpointer.cc',
     'energy_endpointer.cc',

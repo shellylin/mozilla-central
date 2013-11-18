@@ -1238,15 +1238,10 @@ NS_IMPL_ISUPPORTS1(nsXPCFunctionThisTranslator, nsIXPCFunctionThisTranslator)
 
 nsXPCFunctionThisTranslator::nsXPCFunctionThisTranslator()
 {
-  /* member initializers and constructor code */
 }
 
 nsXPCFunctionThisTranslator::~nsXPCFunctionThisTranslator()
 {
-  /* destructor code */
-#ifdef DEBUG_jband
-    printf("destroying nsXPCFunctionThisTranslator\n");
-#endif
 }
 
 /* nsISupports TranslateThis (in nsISupports aInitialThis); */

@@ -5748,7 +5748,7 @@ CodeGenerator::generate()
             gen->info().script()->filename(),
             gen->info().script()->lineno);
 
-    if (!safepoints_.init(gen->temp(), graph.totalSlotCount()))
+    if (!safepoints_.init(gen->alloc(), graph.totalSlotCount()))
         return false;
 
 #if JS_TRACE_LOGGING
@@ -5829,7 +5829,7 @@ CodeGenerator::link(JSContext *cx, types::CompilerConstraintList *constraints)
 
     // List of possible scripts that this graph may call. Currently this is
     // only tracked when compiling for parallel execution.
-    CallTargetVector callTargets;
+    CallTargetVector callTargets(alloc());
     if (executionMode == ParallelExecution)
         AddPossibleCallees(cx, graph.mir(), callTargets);
 

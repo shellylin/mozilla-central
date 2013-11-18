@@ -969,6 +969,14 @@ pref("network.protocol-handler.external.disks", false);
 pref("network.protocol-handler.external.afp", false);
 pref("network.protocol-handler.external.moz-icon", false);
 
+// Don't allow  external protocol handlers for common typos
+pref("network.protocol-handler.external.ttp", false);  // http
+pref("network.protocol-handler.external.ttps", false); // https
+pref("network.protocol-handler.external.tps", false);  // https
+pref("network.protocol-handler.external.ps", false);   // https
+pref("network.protocol-handler.external.ile", false);  // file
+pref("network.protocol-handler.external.le", false);   // file
+
 // An exposed protocol handler is one that can be used in all contexts.  A
 // non-exposed protocol handler is one that can only be used internally by the
 // application.  For example, a non-exposed protocol would not be loaded by the
@@ -2086,9 +2094,6 @@ pref("svg.marker-improvements.enabled", false);
 #else
 pref("svg.marker-improvements.enabled", true);
 #endif
-
-// Is support for the new SVG text implementation enabled?
-pref("svg.text.css-frames.enabled", true);
 
 pref("font.minimum-size.ar", 0);
 pref("font.minimum-size.x-armn", 0);
@@ -3976,6 +3981,8 @@ pref("ui.panel.default_level_parent", true);
 
 pref("mousewheel.system_scroll_override_on_root_content.enabled", false);
 
+pref("ui.key.menuAccessKeyFocuses", true);
+
 # XP_UNIX
 #endif
 #endif
@@ -4198,6 +4205,7 @@ pref("layers.acceleration.force-enabled", false);
 
 pref("layers.acceleration.draw-fps", false);
 
+pref("layers.dump", false);
 pref("layers.draw-borders", false);
 pref("layers.draw-tile-borders", false);
 pref("layers.draw-bigimage-borders", false);
