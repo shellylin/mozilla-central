@@ -45,7 +45,6 @@ LOCAL_INCLUDES += -I$(topsrcdir)/xpcom/base
 endif
 
 # dependent libraries
-
 ifdef MOZ_B2G_BT_BLUEZ #{
 ifeq (gonk,$(MOZ_WIDGET_TOOLKIT))
 OS_LIBS += -ldbus
