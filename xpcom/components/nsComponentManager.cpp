@@ -79,10 +79,6 @@ using namespace mozilla;
 
 PRLogModuleInfo* nsComponentManagerLog = nullptr;
 
-// defined in nsStaticXULComponents.cpp to contain all the components in
-// libxul.
-extern mozilla::Module const *const *const kPStaticModules[];
-
 #if 0 || defined (DEBUG_timeless)
  #define SHOW_DENIED_ON_SHUTDOWN
  #define SHOW_CI_ON_EXISTING_SERVICE
@@ -322,6 +318,9 @@ nsComponentManagerImpl::nsComponentManagerImpl()
 
 nsTArray<const mozilla::Module*>* nsComponentManagerImpl::sStaticModules;
 
+NSMODULE_DEFN(start_kPStaticModules);
+NSMODULE_DEFN(end_kPStaticModules);
+
 /* static */ void
 nsComponentManagerImpl::InitializeStaticModules()
 {
@@ -329,9 +328,9 @@ nsComponentManagerImpl::InitializeStaticModules()
         return;
 
     sStaticModules = new nsTArray<const mozilla::Module*>;
-    for (const mozilla::Module *const *const *staticModules = kPStaticModules;
-         *staticModules; ++staticModules)
-        sStaticModules->AppendElement(**staticModules);
+    for (const mozilla::Module *const *staticModules = &NSMODULE_NAME(start_kPStaticModules) + 1;
+         staticModules < &NSMODULE_NAME(end_kPStaticModules); ++staticModules)
+        sStaticModules->AppendElement(*staticModules);
 }
 
 nsTArray<nsComponentManagerImpl::ComponentLocation>*
