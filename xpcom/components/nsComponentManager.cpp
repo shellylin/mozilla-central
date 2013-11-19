@@ -321,6 +321,9 @@ nsTArray<const mozilla::Module*>* nsComponentManagerImpl::sStaticModules;
 NSMODULE_DEFN(start_kPStaticModules);
 NSMODULE_DEFN(end_kPStaticModules);
 
+/* ASAN considers this use of the pointers between start_kPStaticModules and
+ * end_kPStaticModules as a global buffer overflow. */
+MOZ_ASAN_BLACKLIST
 /* static */ void
 nsComponentManagerImpl::InitializeStaticModules()
 {
