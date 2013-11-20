@@ -190,7 +190,73 @@ protected:
 
 class VideoTrackEncoder : public TrackEncoder
 {
+public:
+  VideoTrackEncoder()
+    : TrackEncoder()
+    , mFrameWidth(0)
+    , mFrameHeight(0)
+    , mTrackRate(0)
+    , mLastChunk(new VideoChunk())
+    , mFirstFrameTaken(false)
+    , mReentrantMonitor("media.VideoEncoder")
+    , mRawSegment(new VideoSegment())
+  {}
 
+  void NotifyQueuedTrackChanges(MediaStreamGraph* aGraph, TrackID aID,
+                                TrackRate aTrackRate,
+                                TrackTicks aTrackOffset,
+                                uint32_t aTrackEvents,
+                                const MediaSegment& aQueuedMedia) MOZ_OVERRIDE;
+
+
+  // Notifies from MediaEncoder to cancel the encoding, and wakes up
+  // mReentrantMonitor if encoder is waiting on it.
+  void NotifyCancel()
+  {
+    ReentrantMonitorAutoEnter mon(mReentrantMonitor);
+    mCanceled = true;
+    mReentrantMonitor.NotifyAll();
+  }
+
+protected:
+  // Initialized the video encoder. In order to collect the value of width and
+  // height of source frames, this initialization is delayed until we have
+  // received the first valid video frame from MediaStreamGraph;
+  // mReentrantMonitor will be notified after it has successfully initialized,
+  // and this method is called on the MediaStramGraph thread.
+  virtual nsresult Init(int aWidth, int aHeight, TrackRate aTrackRate) = 0;
+
+  // Appends source video frames to mRawSegment. mLastChunk takes every frame
+  // from the source, sums up the duration of duplicated frames, and append
+  // itself to mRawSegment before it takes the next unique frame.
+  nsresult AppendVideoSegment(const VideoSegment& aSegment);
+
+  // Tells the video track encoder that we've reached the end of source stream,
+  // and wakes up mReentrantMonitor if encoder is waiting for more track data.
+  void NotifyEndOfStream() MOZ_OVERRIDE;
+
+  // Create a buffer of black image in format of YUV:420.
+  void CreateMutedFrame(nsTArray<uint8_t>* aOutputBuffer);
+
+  int mFrameWidth;
+  int mFrameHeight;
+  TrackRate mTrackRate;
+
+  // Takes every frame from the source segment, sums up the duration of
+  // duplicated ones, and append itself to the mRawSegment before it takes the
+  // next unique frame.
+  nsAutoPtr<VideoChunk> mLastChunk;
+
+  // True if mLastChunk has taken the first valid video frame from source
+  // segment.
+  bool mFirstFrameTaken;
+
+  // A ReentrantMonitor to protect the pushing and pulling of mRawSegment, and
+  // some other flags.
+  ReentrantMonitor mReentrantMonitor;
+
+  // A segment queue of audio track data, protected by mReentrantMonitor.
+  nsAutoPtr<VideoSegment> mRawSegment;
 };
 
 }
