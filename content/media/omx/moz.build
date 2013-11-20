@@ -7,12 +7,14 @@
 EXPORTS += [
     'MediaOmxDecoder.h',
     'MediaOmxReader.h',
+    'OMXCodecWrapper.h',
 ]
 
 SOURCES += [
     'MediaOmxDecoder.cpp',
     'MediaOmxReader.cpp',
     'OMXCodecProxy.cpp',
+    'OMXCodecWrapper.cpp',
     'OmxDecoder.cpp',
 ]
 
