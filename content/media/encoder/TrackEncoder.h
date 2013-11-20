@@ -9,9 +9,11 @@
 #include "mozilla/ReentrantMonitor.h"
 
 #include "AudioSegment.h"
+#include "EncodedFrameContainer.h"
 #include "StreamBuffer.h"
 #include "TrackMetadataBase.h"
-#include "EncodedFrameContainer.h"
+#include "VideoSegment.h"
+
 
 namespace mozilla {
 
@@ -30,7 +32,14 @@ class MediaStreamGraph;
 class TrackEncoder
 {
 public:
-  TrackEncoder() {}
+  TrackEncoder()
+    : mInitialized(false)
+    , mEncodingComplete(false)
+    , mSilentDuration(0)
+    , mEndOfStream(false)
+    , mCanceled(false)
+  {}
+
   virtual ~TrackEncoder() {}
 
   /**
@@ -47,7 +56,7 @@ public:
    * Notified by the same callback of MediaEncoder when it has been removed from
    * MediaStreamGraph. Called on the MediaStreamGraph thread.
    */
-  virtual void NotifyRemoved(MediaStreamGraph* aGraph) = 0;
+  void NotifyRemoved(MediaStreamGraph* aGraph) { NotifyEndOfStream(); }
 
   /**
    * Creates and sets up meta data for a specific codec
@@ -58,6 +67,37 @@ public:
    * Encodes raw segments. Result data is returned in aData.
    */
   virtual nsresult GetEncodedTrack(EncodedFrameContainer& aData) = 0;
+
+  bool IsEncodingComplete() { return mEncodingComplete; }
+
+  protected:
+  /**
+   * Notifies the audio encoder that we have reached the end of source stream,
+   * and wakes up mReentrantMonitor if encoder is waiting for more track data.
+   */
+  virtual void NotifyEndOfStream() = 0;
+
+  bool mInitialized;
+  bool mEncodingComplete;
+
+  /**
+   * The total duration of null chunks we have received from MediaStreamGraph
+   * before initializing the track encoder.
+   */
+  TrackTicks mSilentDuration;
+
+  /**
+   * True if we have received an event of TRACK_EVENT_ENDED from MediaStreamGraph,
+   * or the MediaEncoder is removed from its source stream, protected by
+   * mReentrantMonitor.
+   */
+  bool mEndOfStream;
+
+  /**
+   * True if a cancellation of encoding is sent from MediaEncoder, protected by
+   * mReentrantMonitor.
+   */
+  bool mCanceled;
 };
 
 class AudioTrackEncoder : public TrackEncoder
@@ -67,13 +107,8 @@ public:
     : TrackEncoder()
     , mChannels(0)
     , mSamplingRate(0)
-    , mInitialized(false)
-    , mDoneEncoding(false)
     , mReentrantMonitor("media.AudioEncoder")
     , mRawSegment(new AudioSegment())
-    , mEndOfStream(false)
-    , mCanceled(false)
-    , mSilentDuration(0)
   {}
 
   void NotifyQueuedTrackChanges(MediaStreamGraph* aGraph, TrackID aID,
@@ -81,13 +116,6 @@ public:
                                 TrackTicks aTrackOffset,
                                 uint32_t aTrackEvents,
                                 const MediaSegment& aQueuedMedia) MOZ_OVERRIDE;
-
-  void NotifyRemoved(MediaStreamGraph* aGraph) MOZ_OVERRIDE;
-
-  bool IsEncodingComplete()
-  {
-    return mDoneEncoding;
-  }
 
   /**
    * Notifies from MediaEncoder to cancel the encoding, and wakes up
@@ -106,7 +134,7 @@ protected:
    * frame size required by audio encoder, and mReentrantMonitor will be
    * notified when at least this much data has been added to mRawSegment.
    */
-  virtual int GetPacketDuration() = 0;
+  virtual int GetPacketDuration() { return 0; }
 
   /**
    * Initializes the audio encoder. The call of this method is delayed until we
@@ -123,13 +151,13 @@ protected:
    * least GetPacketDuration() data has been added to mRawSegment, wake up other
    * method which is waiting for more data from mRawSegment.
    */
-  nsresult AppendAudioSegment(MediaSegment* aSegment);
+  nsresult AppendAudioSegment(const AudioSegment& aSegment);
 
   /**
    * Notifies the audio encoder that we have reached the end of source stream,
    * and wakes up mReentrantMonitor if encoder is waiting for more track data.
    */
-  void NotifyEndOfStream();
+  void NotifyEndOfStream() MOZ_OVERRIDE;
 
   /**
    * Interleaves the track data and stores the result into aOutput. Might need
@@ -146,11 +174,10 @@ protected:
    */
   int mChannels;
   int mSamplingRate;
-  bool mInitialized;
-  bool mDoneEncoding;
 
   /**
-   * A ReentrantMonitor to protect the pushing and pulling of mRawSegment.
+   * A ReentrantMonitor to protect the pushing and pulling of mRawSegment, and
+   * some other flags.
    */
   ReentrantMonitor mReentrantMonitor;
 
@@ -159,24 +186,6 @@ protected:
    */
   nsAutoPtr<AudioSegment> mRawSegment;
 
-  /**
-   * True if we have received an event of TRACK_EVENT_ENDED from MediaStreamGraph,
-   * or the MediaEncoder is removed from its source stream, protected by
-   * mReentrantMonitor.
-   */
-  bool mEndOfStream;
-
-  /**
-   * True if a cancellation of encoding is sent from MediaEncoder, protected by
-   * mReentrantMonitor.
-   */
-  bool mCanceled;
-
-  /**
-   * The total duration of null chunks we have received from MediaStreamGraph
-   * before initializing the audio track encoder.
-   */
-  TrackTicks mSilentDuration;
 };
 
 class VideoTrackEncoder : public TrackEncoder

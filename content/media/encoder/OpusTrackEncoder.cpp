@@ -192,12 +192,12 @@ OpusTrackEncoder::GetMetadata()
   {
     // Wait if mEncoder is not initialized.
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
-    while (!mCanceled && !mEncoder) {
+    while (!mCanceled && !mInitialized) {
       mReentrantMonitor.Wait();
     }
   }
 
-  if (mCanceled || mDoneEncoding) {
+  if (mCanceled || mEncodingComplete) {
     return nullptr;
   }
 
@@ -235,13 +235,13 @@ OpusTrackEncoder::GetEncodedTrack(EncodedFrameContainer& aData)
 
     // Wait if mEncoder is not initialized, or when not enough raw data, but is
     // not the end of stream nor is being canceled.
-    while (!mCanceled && (!mEncoder || (mRawSegment->GetDuration() +
+    while (!mCanceled && (!mInitialized || (mRawSegment->GetDuration() +
            mSourceSegment->GetDuration() < GetPacketDuration() &&
            !mEndOfStream))) {
       mReentrantMonitor.Wait();
     }
 
-    if (mCanceled || mDoneEncoding) {
+    if (mCanceled || mEncodingComplete) {
       return NS_ERROR_FAILURE;
     }
 
@@ -321,7 +321,7 @@ OpusTrackEncoder::GetEncodedTrack(EncodedFrameContainer& aData)
   // Has reached the end of input stream and all queued data has pulled for
   // encoding.
   if (mSourceSegment->GetDuration() == 0 && mEndOfStream) {
-    mDoneEncoding = true;
+    mEncodingComplete = true;
     if (mResampler) {
       speex_resampler_destroy(mResampler);
     }
