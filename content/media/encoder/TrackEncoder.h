@@ -14,7 +14,6 @@
 #include "TrackMetadataBase.h"
 #include "VideoSegment.h"
 
-
 namespace mozilla {
 
 class MediaStreamGraph;
@@ -33,9 +32,10 @@ class TrackEncoder
 {
 public:
   TrackEncoder()
-    : mInitialized(false)
+    : mNullDuration(0)
     , mEncodingComplete(false)
-    , mSilentDuration(0)
+    , mReentrantMonitor("media.TrackEncoder")
+    , mInitialized(false)
     , mEndOfStream(false)
     , mCanceled(false)
   {}
@@ -59,37 +59,70 @@ public:
   void NotifyRemoved(MediaStreamGraph* aGraph) { NotifyEndOfStream(); }
 
   /**
-   * Creates and sets up meta data for a specific codec
+   * Creates and sets up meta data for a specific codec, called on the worker
+   * thread.
    */
   virtual already_AddRefed<TrackMetadataBase> GetMetadata() = 0;
 
   /**
-   * Encodes raw segments. Result data is returned in aData.
+   * Encodes raw segments. Result data is returned in aData, and called on the
+   * worker thread.
    */
   virtual nsresult GetEncodedTrack(EncodedFrameContainer& aData) = 0;
 
+  /**
+   * True if the track encoder has encoded all source segments coming from
+   * MediaStreamGraph. Call on the worker thread.
+   */
   bool IsEncodingComplete() { return mEncodingComplete; }
 
-  protected:
   /**
-   * Notifies the audio encoder that we have reached the end of source stream,
-   * and wakes up mReentrantMonitor if encoder is waiting for more track data.
+   * Notifies from MediaEncoder to cancel the encoding, and wakes up
+   * mReentrantMonitor if encoder is waiting on it.
+   */
+  void NotifyCancel()
+  {
+    ReentrantMonitorAutoEnter mon(mReentrantMonitor);
+    mCanceled = true;
+    mReentrantMonitor.NotifyAll();
+  }
+
+protected:
+  /**
+   * Notifies track encoder that we have reached the end of source stream, and
+   * wakes up mReentrantMonitor if encoder is waiting for any source data.
    */
   virtual void NotifyEndOfStream() = 0;
-
-  bool mInitialized;
-  bool mEncodingComplete;
 
   /**
    * The total duration of null chunks we have received from MediaStreamGraph
    * before initializing the track encoder.
    */
-  TrackTicks mSilentDuration;
+  TrackTicks mNullDuration;
 
   /**
-   * True if we have received an event of TRACK_EVENT_ENDED from MediaStreamGraph,
-   * or the MediaEncoder is removed from its source stream, protected by
+   * A ReentrantMonitor to protect the pushing and pulling of mRawSegment which
+   * is declared in its subclasses, and the following flags: mInitialized,
+   * EndOfStream and mCanceled. The control of protection is managed by its
+   * subclasses.
+   */
+  ReentrantMonitor mReentrantMonitor;
+
+  /**
+   * True if the track encoder has encoded all source data.
+   */
+  bool mEncodingComplete;
+
+  /**
+   * True if the track encoder has initialized successfully, protected by
    * mReentrantMonitor.
+   */
+  bool mInitialized;
+
+  /**
+   * True if the TrackEncoder has received an event of TRACK_EVENT_ENDED from
+   * MediaStreamGraph, or the MediaEncoder is removed from its source stream,
+   * protected by mReentrantMonitor.
    */
   bool mEndOfStream;
 
@@ -107,7 +140,6 @@ public:
     : TrackEncoder()
     , mChannels(0)
     , mSamplingRate(0)
-    , mReentrantMonitor("media.AudioEncoder")
     , mRawSegment(new AudioSegment())
   {}
 
@@ -116,17 +148,6 @@ public:
                                 TrackTicks aTrackOffset,
                                 uint32_t aTrackEvents,
                                 const MediaSegment& aQueuedMedia) MOZ_OVERRIDE;
-
-  /**
-   * Notifies from MediaEncoder to cancel the encoding, and wakes up
-   * mReentrantMonitor if encoder is waiting on it.
-   */
-  void NotifyCancel()
-  {
-    ReentrantMonitorAutoEnter mon(mReentrantMonitor);
-    mCanceled = true;
-    mReentrantMonitor.NotifyAll();
-  }
 
 protected:
   /**
@@ -157,7 +178,7 @@ protected:
    * Notifies the audio encoder that we have reached the end of source stream,
    * and wakes up mReentrantMonitor if encoder is waiting for more track data.
    */
-  void NotifyEndOfStream() MOZ_OVERRIDE;
+  virtual void NotifyEndOfStream() MOZ_OVERRIDE;
 
   /**
    * Interleaves the track data and stores the result into aOutput. Might need
@@ -173,13 +194,11 @@ protected:
    * to initialize the audio encoder.
    */
   int mChannels;
-  int mSamplingRate;
 
   /**
-   * A ReentrantMonitor to protect the pushing and pulling of mRawSegment, and
-   * some other flags.
+   * The sampling rate of source audio data.
    */
-  ReentrantMonitor mReentrantMonitor;
+  int mSamplingRate;
 
   /**
    * A segment queue of audio track data, protected by mReentrantMonitor.
@@ -196,66 +215,78 @@ public:
     , mFrameWidth(0)
     , mFrameHeight(0)
     , mTrackRate(0)
-    , mLastChunk(new VideoChunk())
-    , mFirstFrameTaken(false)
-    , mReentrantMonitor("media.VideoEncoder")
+    , mLastChunk(nullptr)
+    , mCurrentFrameTimeStamp(TimeStamp())
     , mRawSegment(new VideoSegment())
   {}
 
+  /**
+   * Notified by the same callbcak of MediaEncoder when it has received a track
+   * change from MediaStreamGraph. Called on the MediaStreamGraph thread.
+   */
   void NotifyQueuedTrackChanges(MediaStreamGraph* aGraph, TrackID aID,
                                 TrackRate aTrackRate,
                                 TrackTicks aTrackOffset,
                                 uint32_t aTrackEvents,
                                 const MediaSegment& aQueuedMedia) MOZ_OVERRIDE;
 
-
-  // Notifies from MediaEncoder to cancel the encoding, and wakes up
-  // mReentrantMonitor if encoder is waiting on it.
-  void NotifyCancel()
-  {
-    ReentrantMonitorAutoEnter mon(mReentrantMonitor);
-    mCanceled = true;
-    mReentrantMonitor.NotifyAll();
-  }
-
 protected:
-  // Initialized the video encoder. In order to collect the value of width and
-  // height of source frames, this initialization is delayed until we have
-  // received the first valid video frame from MediaStreamGraph;
-  // mReentrantMonitor will be notified after it has successfully initialized,
-  // and this method is called on the MediaStramGraph thread.
+  /**
+   * Initialized the video encoder. In order to collect the value of width and
+   * height of source frames, this initialization is delayed until we have
+   * received the first valid video frame from MediaStreamGraph;
+   * mReentrantMonitor will be notified after it has successfully initialized,
+   * and this method is called on the MediaStramGraph thread.
+   */
   virtual nsresult Init(int aWidth, int aHeight, TrackRate aTrackRate) = 0;
 
-  // Appends source video frames to mRawSegment. mLastChunk takes every frame
-  // from the source, sums up the duration of duplicated frames, and append
-  // itself to mRawSegment before it takes the next unique frame.
+  /**
+   * Appends source video frames to mRawSegment. We only append the source chunk
+   * if it is unique to mLastChunk. Called on the MediaStreamGraph thread.
+   */
   nsresult AppendVideoSegment(const VideoSegment& aSegment);
 
-  // Tells the video track encoder that we've reached the end of source stream,
-  // and wakes up mReentrantMonitor if encoder is waiting for more track data.
-  void NotifyEndOfStream() MOZ_OVERRIDE;
+  /**
+   * Tells the video track encoder that we've reached the end of source stream,
+   * and wakes up mReentrantMonitor if encoder is waiting for more track data.
+   * Called on the MediaStreamGraph thread.
+   */
+  virtual void NotifyEndOfStream() MOZ_OVERRIDE;
 
-  // Create a buffer of black image in format of YUV:420.
+  /**
+   * Create a buffer of black image in format of YUV:420. Called on the worker
+   * thread.
+   */
   void CreateMutedFrame(nsTArray<uint8_t>* aOutputBuffer);
 
+  /**
+   * The width of source video frame, ceiled if the source width is odd.
+   */
   int mFrameWidth;
+
+  /**
+   * The height of source video frame, ceiled if the source height is odd.
+   */
   int mFrameHeight;
+
+  /**
+   * The track rate of source video.
+   */
   TrackRate mTrackRate;
 
-  // Takes every frame from the source segment, sums up the duration of
-  // duplicated ones, and append itself to the mRawSegment before it takes the
-  // next unique frame.
+  /**
+   * Pointer that keeps track of the last chunk coming from MediaStramGraph.
+   */
   nsAutoPtr<VideoChunk> mLastChunk;
 
-  // True if mLastChunk has taken the first valid video frame from source
-  // segment.
-  bool mFirstFrameTaken;
+  /**
+   * The time stamp of this current frame.
+   */
+  TimeStamp mCurrentFrameTimeStamp;
 
-  // A ReentrantMonitor to protect the pushing and pulling of mRawSegment, and
-  // some other flags.
-  ReentrantMonitor mReentrantMonitor;
-
-  // A segment queue of audio track data, protected by mReentrantMonitor.
+  /**
+   * A segment queue of audio track data, protected by mReentrantMonitor.
+   */
   nsAutoPtr<VideoSegment> mRawSegment;
 };
 

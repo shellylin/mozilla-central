@@ -53,7 +53,7 @@ AudioTrackEncoder::NotifyQueuedTrackChanges(MediaStreamGraph* aGraph,
         }
         break;
       } else {
-        mSilentDuration += chunk.mDuration;
+        mNullDuration += chunk.mDuration;
       }
       iter.Next();
     }
@@ -79,8 +79,8 @@ AudioTrackEncoder::NotifyEndOfStream()
   // append this many null data to the segment of track encoder.
   if (!mCanceled && !mInitialized) {
     Init(DEFAULT_CHANNELS, DEFAULT_SAMPLING_RATE);
-    mRawSegment->AppendNullData(mSilentDuration);
-    mSilentDuration = 0;
+    mRawSegment->AppendNullData(mNullDuration);
+    mNullDuration = 0;
   }
 
   ReentrantMonitorAutoEnter mon(mReentrantMonitor);
@@ -95,9 +95,9 @@ AudioTrackEncoder::AppendAudioSegment(const AudioSegment& aSegment)
 
   // Append this many null data to our queued segment if there is a complete
   // silence before the audio track encoder has initialized.
-  if (mSilentDuration > 0) {
-    mRawSegment->AppendNullData(mSilentDuration);
-    mSilentDuration = 0;
+  if (mNullDuration > 0) {
+    mRawSegment->AppendNullData(mNullDuration);
+    mNullDuration = 0;
   }
 
   AudioSegment::ChunkIterator iter(const_cast<AudioSegment&>(aSegment));
@@ -169,7 +169,7 @@ VideoTrackEncoder::NotifyQueuedTrackChanges(MediaStreamGraph* aGraph,
         }
         break;
       } else {
-        mSilentDuration += chunk.mDuration;
+        mNullDuration += chunk.mDuration;
       }
       iter.Next();
     }
@@ -193,10 +193,11 @@ VideoTrackEncoder::AppendVideoSegment(const VideoSegment& aSegment)
   ReentrantMonitorAutoEnter mon(mReentrantMonitor);
 
   // Append this many null data to our queued segment if there is a completely
-  // muted video before receiving the first non-null video chunk.
-  if (mSilentDuration > 0) {
-    mRawSegment->AppendNullData(mSilentDuration);
-    mSilentDuration = 0;
+  // muted duration before receiving the first non-null video chunk.
+  if (mNullDuration > 0) {
+    mRawSegment->AppendNullData(mNullDuration);
+    mCurrentFrameTimeStamp += TimeDuration::FromMicroseconds(mNullDuration);
+    mNullDuration = 0;
   }
 
   // Append all video segments from MediaStreamGraph, including null an
@@ -205,24 +206,16 @@ VideoTrackEncoder::AppendVideoSegment(const VideoSegment& aSegment)
   while (!iter.IsEnded()) {
     VideoChunk chunk = *iter;
 
-    if (!mFirstFrameTaken) {
-      mFirstFrameTaken = true;
-      mLastChunk->mFrame.TakeFrom(&chunk.mFrame);
-      mLastChunk->mFrame.SetForceBlack(chunk.mFrame.GetForceBlack());
-      mLastChunk->mDuration = chunk.GetDuration();
-    } else {
-      if (mLastChunk->CanCombineWithFollowing(chunk)) {
-        mLastChunk->mDuration += chunk.GetDuration();
-      } else {
-        nsRefPtr<layers::Image> lastImg = mLastChunk->mFrame.GetImage();
-        mRawSegment->AppendFrame(lastImg.forget(), mLastChunk->GetDuration(),
-                                 mLastChunk->mFrame.GetIntrinsicSize());
-        mLastChunk->mDuration = chunk.GetDuration();
-      }
-
-      mLastChunk->mFrame.TakeFrom(&chunk.mFrame);
-      mLastChunk->mFrame.SetForceBlack(chunk.mFrame.GetForceBlack());
+    if (!mLastChunk || !mLastChunk->CanCombineWithFollowing(chunk)) {
+      nsRefPtr<layers::Image> image = chunk.mFrame.GetImage();
+      mRawSegment->AppendFrame(image.forget(), chunk.GetDuration(),
+                               chunk.mFrame.GetIntrinsicSize());
+      mRawSegment->GetLastChunk()->mTimeStamp = mCurrentFrameTimeStamp;
     }
+
+    mCurrentFrameTimeStamp += TimeDuration::FromMicroseconds(chunk.GetDuration());
+    mLastChunk = &chunk;
+
     iter.Next();
   }
 
@@ -246,16 +239,9 @@ VideoTrackEncoder::NotifyEndOfStream()
   // many null data to mRawSegment.
   if (!mCanceled && !mInitialized) {
     Init(DEFAULT_FRAME_WIDTH, DEFAULT_FRAME_HEIGHT, DEFAULT_TRACK_RATE);
-    mRawSegment->AppendNullData(mSilentDuration);
-    mSilentDuration = 0;
-  }
-
-  // Append the last unique frame to mRawSegment.
-  if (mLastChunk->GetDuration()) {
-    nsRefPtr<layers::Image> lastImg = mLastChunk->mFrame.GetImage();
-    mRawSegment->AppendFrame(lastImg.forget(), mLastChunk->GetDuration(),
-                             mLastChunk->mFrame.GetIntrinsicSize());
-    mLastChunk->mDuration = 0;
+    mRawSegment->AppendNullData(mNullDuration);
+    mCurrentFrameTimeStamp += TimeDuration::FromMicroseconds(mNullDuration);
+    mNullDuration = 0;
   }
 
   mReentrantMonitor.NotifyAll();
